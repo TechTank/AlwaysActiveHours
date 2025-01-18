@@ -32,6 +32,7 @@ if "%~1"=="/task" (
 
 :: ==========
 
+:: Reject non-administrators
 if "%asAdministrator%"=="false" (
 	if "%asTask%"=="true" (
 		exit /b
@@ -51,9 +52,11 @@ if "%asTask%"=="true" (
 
 :: ==========
 
+:: Set task variables
 set "taskName=Always Active Hours"
 set "scriptPath=%~f0"
 set "xmlPath=%temp%\AlwaysActiveHours.xml"
+set "targetDir=%ProgramData%\AlwaysActiveHours"
 
 goto menu
 
@@ -106,13 +109,12 @@ if %errorlevel% equ 0 (
 
 :menu_display
 
+:: Display the menu
 cls
 echo =======================================================
 echo            Always Active Hours Configurator
 echo =======================================================
 echo.
-
-echo ^[[32mWelcome to Always Active Hours Configurator^[[0m
 
 if defined activeStartDisplay if defined activeEndDisplay (
 	call :display_active_hours %activeStart% %activeEnd%
@@ -177,7 +179,7 @@ if %end% LSS %start% (
 	set /a normalized_end=%end%
 )
 
-:: Generate the bar (23 blocks)
+:: Generate the bar and arrow lines
 for /l %%H in (0,1,23) do (
 	set /a hour=%%H
 	set /a normalized_hour=hour
@@ -202,7 +204,7 @@ for /l %%H in (0,1,23) do (
 	set "bar=!bar! !block!"
 )
 
-:: Generate hour labels (every 3 hours for spacing)
+:: Generate hour labels
 for /l %%L in (0,3,21) do (
 	if %%L LSS 10 (
 		set "label= 0%%L"
@@ -216,7 +218,7 @@ for /l %%L in (0,3,21) do (
 	)
 )
 
-:: Display the bar and labels
+:: Display the arrow, bar and label lines
 echo !arrow!
 echo !bar!
 echo !labels!
@@ -235,10 +237,16 @@ if "%taskExists%"=="true" (
 	:: Remove the scheduled task
 	echo Removing the scheduled task...
 	schtasks /delete /tn "%taskName%" /f >nul 2>&1
-	set "taskState=remove"
+
+	call :uninstall
+
+	:: Set the task action
+	set "taskAction=remove"
 ) else (
 	:: Add the scheduled task using XML
 	echo Adding the scheduled task...
+
+    call :install
 
 	REM Create temporary XML file
 	(
@@ -296,7 +304,7 @@ if "%taskExists%"=="true" (
 		echo   ^</Settings^>
 		echo   ^<Actions Context="Author"^>
 		echo     ^<Exec^>
-		echo       ^<Command^>"%scriptPath%"^</Command^>
+		echo       ^<Command^>"%targetDir%\Always Active Hours.bat"^</Command^>
 		echo       ^<Arguments^>/task^</Arguments^>
 		echo     ^</Exec^>
 		echo   ^</Actions^>
@@ -309,13 +317,16 @@ if "%taskExists%"=="true" (
 	:: Clean up the XML file
 	del "%xmlPath%" >nul 2>&1
 
-	set "taskState=create"
+	:: Set the task action
+	set "taskAction=create"
 )
 
 goto task_check
 :task_check
+
+	:: Check if the task action was sucessful or not
 	schtasks /query /tn "%taskName%" >nul 2>&1
-	if "%taskState%"=="remove" (
+	if "%taskAction%"=="remove" (
 		if %errorlevel% equ 0 (
 			echo Error: Failed to remove the scheduled task '%taskName%'.
 		) else (
@@ -334,6 +345,45 @@ echo ----------
 echo.
 pause
 goto menu
+
+:: ==========
+
+:install
+
+:: Check if already installed in target location
+if /I "%~dp0"=="%targetDir%\" (
+	if /I "%~nx0"=="Always Active Hours.bat" (
+		goto :eof
+	)
+)
+
+:: Create target directory if it doesn't exist
+if not exist "%targetDir%" (
+	mkdir "%targetDir%"
+)
+
+:: Copy script to ProgramData directory
+xcopy "%scriptPath%" "%targetDir%\Always Active Hours.bat" /Y /-I /Q >nul 2>&1
+
+goto :eof
+
+:: ==========
+
+:uninstall
+
+:: Delete the script file if it exists in the target directory
+if exist "%targetDir%\Always Active Hours.bat" (
+    del "%targetDir%\Always Active Hours.bat" /F /Q
+)
+
+:: Check if the directory is empty
+dir /b "%targetDir%" | findstr . >nul
+if errorlevel 1 (
+    :: Directory is empty; attempt to remove it
+    rd "%targetDir%"
+)
+
+goto :eof
 
 :: ========== ========== ========== ========== ==========
 
