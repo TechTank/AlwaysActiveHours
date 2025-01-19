@@ -246,7 +246,18 @@ if "%taskExists%"=="true" (
 	:: Add the scheduled task using XML
 	echo Adding the scheduled task...
 
-    call :install
+	call :install
+
+	:: Ensure SmartActiveHoursState is set to 0
+	reg add "HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings" /v SmartActiveHoursState /t REG_DWORD /d 0 /f >nul
+	if %errorlevel% neq 0 (
+		echo Error: Failed to set SmartActiveHoursState to 0.
+		echo.
+		echo ----------
+		echo.
+		pause
+		goto menu
+	)
 
 	REM Create temporary XML file
 	(
@@ -373,14 +384,14 @@ goto :eof
 
 :: Delete the script file if it exists in the target directory
 if exist "%targetDir%\Always Active Hours.bat" (
-    del "%targetDir%\Always Active Hours.bat" /F /Q
+	del "%targetDir%\Always Active Hours.bat" /F /Q
 )
 
 :: Check if the directory is empty
 dir /b "%targetDir%" | findstr . >nul
 if errorlevel 1 (
-    :: Directory is empty; attempt to remove it
-    rd "%targetDir%"
+	:: Directory is empty; attempt to remove it
+	rd "%targetDir%"
 )
 
 goto :eof
