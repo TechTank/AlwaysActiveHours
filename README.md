@@ -4,6 +4,8 @@ Overview
 
 The script autonomously installs itself when enabling its scheduled task, runs periodic adjustments as needed, and removes itself cleanly when the scheduled task is disabled. It operates without external dependencies, relying solely on built-in Windows commands and registry modifications.
 
+Windows typically enforces an 18-hour active window, but this script keeps you perpetually in the middle of that period. The script is designed to have Windows restart your PC only during inactive hours. If Windows automatically manages your active hours, you lose control over restart timing. Even if you manually set your active hours and enforce a no-reboot policy, the computer should reboot only when it's inactive. However, this raises a question: what happens if the system is always within the defined active hours, especially given Windows' restrictions?
+
 How It Works
 ------------
 
