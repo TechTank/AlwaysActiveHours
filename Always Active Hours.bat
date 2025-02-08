@@ -1,4 +1,10 @@
 @echo off
+REM Version: 1.0
+REM Filename: Always Active Hours.bat
+REM Written by: Brogan Scott Houston McIntyre
+
+:: Set column and row dimensions
+mode con: cols=55 lines=30
 
 :: Set code page to UTF-8
 CHCP 65001 >nul
@@ -57,6 +63,7 @@ set "taskName=Always Active Hours"
 set "scriptPath=%~f0"
 set "xmlPath=%temp%\AlwaysActiveHours.xml"
 set "targetDir=%ProgramData%\AlwaysActiveHours"
+set "taskErrorLog=%temp%\schtasks_error.log"
 
 goto menu
 
@@ -109,11 +116,14 @@ if %errorlevel% equ 0 (
 
 :menu_display
 
+:: Reset choice variable
+set "choice="
+
 :: Display the menu
 cls
-echo =======================================================
-echo            Always Active Hours Configurator
-echo =======================================================
+echo ╔═════════════════════════════════════════════════════╗
+echo ║          Always Active Hours Configurator           ║
+echo ╚═════════════════════════════════════════════════════╝
 echo.
 
 if defined activeStartDisplay if defined activeEndDisplay (
@@ -230,7 +240,7 @@ goto :eof
 :toggle_task
 
 echo.
-echo ----------
+echo .......................................................
 echo.
 
 if "%taskExists%"=="true" (
@@ -253,7 +263,7 @@ if "%taskExists%"=="true" (
 	if %errorlevel% neq 0 (
 		echo Error: Failed to set SmartActiveHoursState to 0.
 		echo.
-		echo ----------
+		echo -------------------------------------------------------
 		echo.
 		pause
 		goto menu
@@ -322,8 +332,19 @@ if "%taskExists%"=="true" (
 		echo ^</Task^>
 	) > "%xmlPath%"
 
+	:: Verify the existence of the XML file
+	if not exist "%xmlPath%" (
+		echo XML file "%xmlPath%" does not exist.
+		echo Unable to create the scheduled task without the XML configuration.
+		echo.
+		echo -------------------------------------------------------
+		echo.
+		pause
+		goto menu
+	)
+
 	:: Register the task using the XML file
-	schtasks /create /tn "%taskName%" /xml "%xmlPath%" /ru SYSTEM /f >nul 2>&1
+	schtasks /create /tn "%taskName%" /xml "%xmlPath%" /ru SYSTEM /f >"%taskErrorLog%" 2>&1
 
 	:: Clean up the XML file
 	del "%xmlPath%" >nul 2>&1
@@ -339,20 +360,32 @@ goto task_check
 	schtasks /query /tn "%taskName%" >nul 2>&1
 	if "%taskAction%"=="remove" (
 		if %errorlevel% equ 0 (
-			echo Error: Failed to remove the scheduled task '%taskName%'.
+			echo Error: Failed to remove the scheduled task.
 		) else (
-			echo Scheduled task '%taskName%' removed successfully.
+			echo Scheduled task removed successfully.
 		)
 	) else (
 		if %errorlevel% equ 0 (
-			echo Scheduled task '%taskName%' created successfully.
+			echo Scheduled task created successfully.
 		) else (
-			echo Error: Failed to create the scheduled task '%taskName%'.
+			echo Error: Failed to create the scheduled task.
+			if exist "%taskErrorLog%" (
+				echo.
+				echo                      ERROR DETAILS
+				echo =======================================================
+				for /f "tokens=*" %%A in (%taskErrorLog%) do (
+					set "line=%%A"
+					setlocal enabledelayedexpansion
+					set "line=!line:ERROR: =!"
+					echo !line!
+					endlocal
+				)
+			)
 		)
 	)
 
 echo.
-echo ----------
+echo -------------------------------------------------------
 echo.
 pause
 goto menu
@@ -401,13 +434,13 @@ goto :eof
 :toggle_no_reboot
 
 echo.
-echo ----------
+echo .......................................................
 echo.
 
 if "%noRebootPolicy%"=="true" (
 	:: Disable No Auto Reboot Policy
 	echo Attempting to delete No Auto Reboot policy...
-	reg delete "HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU" /v NoAutoRebootWithLoggedOnUsers /f >c:\_windows\debug.txt 2>&1
+	reg delete "HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU" /v NoAutoRebootWithLoggedOnUsers /f >nul 2>&1
 
 	set "result="
 	for /f "tokens=*" %%A in ('reg query "HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU" /v NoAutoRebootWithLoggedOnUsers 2^>nul') do set "result=%%A"
@@ -420,7 +453,7 @@ if "%noRebootPolicy%"=="true" (
 ) else (
 	:: Enable No Auto Reboot Policy
 	echo Attempting to add No Auto Reboot policy...
-	reg add "HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU" /v NoAutoRebootWithLoggedOnUsers /t REG_DWORD /d 1 /f >c:\_windows\debug.txt 2>&1
+	reg add "HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU" /v NoAutoRebootWithLoggedOnUsers /t REG_DWORD /d 1 /f >nul 2>&1
 
 	set "result="
 	for /f "tokens=*" %%A in ('reg query "HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU" /v NoAutoRebootWithLoggedOnUsers 2^>nul') do set "result=%%A"
@@ -433,7 +466,7 @@ if "%noRebootPolicy%"=="true" (
 )
 
 echo.
-echo ----------
+echo -------------------------------------------------------
 echo.
 pause
 goto menu
@@ -443,7 +476,7 @@ goto menu
 :shift_hours
 
 echo.
-echo ----------
+echo .......................................................
 echo.
 
 :: Calculate and shift active hours
@@ -501,7 +534,7 @@ call :convert_to_ampm %startHour% newStartDisplay
 call :convert_to_ampm %endHour% newEndDisplay
 
 echo.
-echo ----------
+echo -------------------------------------------------------
 echo.
 
 :: Display updated active hours
