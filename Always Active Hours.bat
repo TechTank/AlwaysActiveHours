@@ -15,8 +15,9 @@ title Always Active Hours Configurator
 :: ========== ========== ========== ========== ==========
 
 ver | findstr /r "10\.0\.[0-9]*" >nul || (
-	echo ERROR: Unsupported Windows version.
-	exit /b
+	echo Error: Unsupported Windows version.
+	pause
+	goto end
 )
 
 :: ========== ========== ========== ========== ==========
@@ -41,12 +42,12 @@ if "%~1"=="/task" (
 :: Reject non-administrators
 if "%asAdministrator%"=="false" (
 	if "%asTask%"=="true" (
-		exit /b
+		goto end
 	) else (
-		echo This script must be run as an administrator.
+		echo Error: This script must be run as an administrator.
 		echo Right-click the script and select "Run as Administrator."
 		pause
-		exit /b
+		goto end
 	)
 )
 
@@ -252,106 +253,138 @@ if "%taskExists%"=="true" (
 
 	:: Set the task action
 	set "taskAction=remove"
-) else (
-	:: Add the scheduled task using XML
-	echo Adding the scheduled task...
-
-	call :install
-
-	:: Ensure SmartActiveHoursState is set to 0
-	reg add "HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings" /v SmartActiveHoursState /t REG_DWORD /d 0 /f >nul
-	if %errorlevel% neq 0 (
-		echo Error: Failed to set SmartActiveHoursState to 0.
-		echo.
-		echo -------------------------------------------------------
-		echo.
-		pause
-		goto menu
-	)
-
-	REM Create temporary XML file
-	(
-		echo ^<?xml version="1.0" encoding="UTF-16"?^>
-		echo ^<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task"^>
-		echo   ^<RegistrationInfo^>
-		echo     ^<Date^>%date%T%time:~0,8%^</Date^>
-		echo     ^<Author^>%username%^</Author^>
-		echo     ^<URI^\>%taskName%^</URI^>
-		echo   ^</RegistrationInfo^>
-		echo   ^<Triggers^>
-		echo     ^<RegistrationTrigger^>
-		echo       ^<Enabled^>true^</Enabled^>
-		echo     ^</RegistrationTrigger^>
-		echo     ^<BootTrigger^>
-		echo       ^<Enabled^>true^</Enabled^>
-		echo     ^</BootTrigger^>
-		echo     ^<CalendarTrigger^>
-		echo       ^<Repetition^>
-		echo         ^<Interval^>PT1H^</Interval^>
-		echo         ^<StopAtDurationEnd^>false^</StopAtDurationEnd^>
-		echo       ^</Repetition^>
-		echo       ^<StartBoundary^>%date%T00:00:00^</StartBoundary^>
-		echo       ^<Enabled^>true^</Enabled^>
-		echo       ^<ScheduleByDay^>
-		echo         ^<DaysInterval^>1^</DaysInterval^>
-		echo       ^</ScheduleByDay^>
-		echo     ^</CalendarTrigger^>
-		echo   ^</Triggers^>
-		echo   ^<Principals^>
-		echo     ^<Principal id="Author"^>
-		echo       ^<UserId^>S-1-5-18^</UserId^>
-		echo       ^<LogonType^>Password^</LogonType^>
-		echo       ^<RunLevel^>HighestAvailable^</RunLevel^>
-		echo     ^</Principal^>
-		echo   ^</Principals^>
-		echo   ^<Settings^>
-		echo     ^<MultipleInstancesPolicy^>IgnoreNew^</MultipleInstancesPolicy^>
-		echo     ^<DisallowStartIfOnBatteries^>false^</DisallowStartIfOnBatteries^>
-		echo     ^<StopIfGoingOnBatteries^>true^</StopIfGoingOnBatteries^>
-		echo     ^<AllowHardTerminate^>true^</AllowHardTerminate^>
-		echo     ^<StartWhenAvailable^>true^</StartWhenAvailable^>
-		echo     ^<RunOnlyIfNetworkAvailable^>false^</RunOnlyIfNetworkAvailable^>
-		echo     ^<IdleSettings^>
-		echo       ^<StopOnIdleEnd^>true^</StopOnIdleEnd^>
-		echo       ^<RestartOnIdle^>false^</RestartOnIdle^>
-		echo     ^</IdleSettings^>
-		echo     ^<AllowStartOnDemand^>true^</AllowStartOnDemand^>
-		echo     ^<Enabled^>true^</Enabled^>
-		echo     ^<Hidden^>true^</Hidden^>
-		echo     ^<RunOnlyIfIdle^>false^</RunOnlyIfIdle^>
-		echo     ^<WakeToRun^>false^</WakeToRun^>
-		echo     ^<ExecutionTimeLimit^>PT15S^</ExecutionTimeLimit^>
-		echo     ^<Priority^>7^</Priority^>
-		echo   ^</Settings^>
-		echo   ^<Actions Context="Author"^>
-		echo     ^<Exec^>
-		echo       ^<Command^>"%targetDir%\Always Active Hours.bat"^</Command^>
-		echo       ^<Arguments^>/task^</Arguments^>
-		echo     ^</Exec^>
-		echo   ^</Actions^>
-		echo ^</Task^>
-	) > "%xmlPath%"
-
-	:: Verify the existence of the XML file
-	if not exist "%xmlPath%" (
-		echo XML file "%xmlPath%" does not exist.
-		echo Unable to create the scheduled task without the XML configuration.
-		echo.
-		echo -------------------------------------------------------
-		echo.
-		pause
-		goto menu
-	)
-
-	:: Register the task using the XML file
-	schtasks /create /tn "%taskName%" /xml "%xmlPath%" /ru SYSTEM /f >"%taskErrorLog%" 2>&1
-
-	:: Clean up the XML file
-	del "%xmlPath%" >nul 2>&1
-
-	:: Set the task action
-	set "taskAction=create"
+	goto task_check
 )
+
+:: Detect date format by checking the position of the year
+for /f "tokens=1-3 delims=/- " %%A in ("%DATE%") do (
+	if %%A GTR 31 (
+		set yyyy=%%A
+		set mm=%%B
+		set dd=%%C
+	) else if %%C GTR 31 (
+		set yyyy=%%C
+		set mm=%%A
+		set dd=%%B
+	) else (
+		set yyyy=20%%C
+		set mm=%%A
+		set dd=%%B
+	)
+)
+
+:: Get time components
+set hh=%TIME:~0,2%
+set min=%TIME:~3,2%
+set ss=%TIME:~6,2%
+
+:: Trim leading space for single-digit hours
+setlocal enabledelayedexpansion
+set hh=!hh: =!
+if !hh! LSS 10 set hh=0!hh!
+endlocal & set hh=%hh%
+
+:: Format the date-time as YYYY-MM-DDTHH:mm:ss
+set formattedDate=%yyyy%-%mm%-%dd%T%hh%:%min%:%ss%
+
+:: Add the scheduled task using XML
+echo Adding the scheduled task...
+
+call :install
+
+:: Ensure SmartActiveHoursState is set to 0
+reg add "HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings" /v SmartActiveHoursState /t REG_DWORD /d 0 /f >nul
+if %errorlevel% neq 0 (
+	echo Error: Failed to set SmartActiveHoursState to 0.
+	echo.
+	echo -------------------------------------------------------
+	echo.
+	pause
+	goto menu
+)
+
+REM Create temporary XML file
+(
+	echo ^<?xml version="1.0" encoding="UTF-16"?^>
+	echo ^<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task"^>
+	echo   ^<RegistrationInfo^>
+	echo     ^<Date^>%formattedDate%^</Date^>
+	echo     ^<Author^>%username%^</Author^>
+	echo     ^<URI^\>%taskName%^</URI^>
+	echo   ^</RegistrationInfo^>
+	echo   ^<Triggers^>
+	echo     ^<RegistrationTrigger^>
+	echo       ^<Enabled^>true^</Enabled^>
+	echo     ^</RegistrationTrigger^>
+	echo     ^<BootTrigger^>
+	echo       ^<Enabled^>true^</Enabled^>
+	echo     ^</BootTrigger^>
+	echo     ^<CalendarTrigger^>
+	echo       ^<Repetition^>
+	echo         ^<Interval^>PT1H^</Interval^>
+	echo         ^<StopAtDurationEnd^>false^</StopAtDurationEnd^>
+	echo       ^</Repetition^>
+	echo       ^<StartBoundary^>%date%T00:00:00^</StartBoundary^>
+	echo       ^<Enabled^>true^</Enabled^>
+	echo       ^<ScheduleByDay^>
+	echo         ^<DaysInterval^>1^</DaysInterval^>
+	echo       ^</ScheduleByDay^>
+	echo     ^</CalendarTrigger^>
+	echo   ^</Triggers^>
+	echo   ^<Principals^>
+	echo     ^<Principal id="Author"^>
+	echo       ^<UserId^>S-1-5-18^</UserId^>
+	echo       ^<LogonType^>Password^</LogonType^>
+	echo       ^<RunLevel^>HighestAvailable^</RunLevel^>
+	echo     ^</Principal^>
+	echo   ^</Principals^>
+	echo   ^<Settings^>
+	echo     ^<MultipleInstancesPolicy^>IgnoreNew^</MultipleInstancesPolicy^>
+	echo     ^<DisallowStartIfOnBatteries^>false^</DisallowStartIfOnBatteries^>
+	echo     ^<StopIfGoingOnBatteries^>true^</StopIfGoingOnBatteries^>
+	echo     ^<AllowHardTerminate^>true^</AllowHardTerminate^>
+	echo     ^<StartWhenAvailable^>true^</StartWhenAvailable^>
+	echo     ^<RunOnlyIfNetworkAvailable^>false^</RunOnlyIfNetworkAvailable^>
+	echo     ^<IdleSettings^>
+	echo       ^<StopOnIdleEnd^>true^</StopOnIdleEnd^>
+	echo       ^<RestartOnIdle^>false^</RestartOnIdle^>
+	echo     ^</IdleSettings^>
+	echo     ^<AllowStartOnDemand^>true^</AllowStartOnDemand^>
+	echo     ^<Enabled^>true^</Enabled^>
+	echo     ^<Hidden^>true^</Hidden^>
+	echo     ^<RunOnlyIfIdle^>false^</RunOnlyIfIdle^>
+	echo     ^<WakeToRun^>false^</WakeToRun^>
+	echo     ^<ExecutionTimeLimit^>PT15S^</ExecutionTimeLimit^>
+	echo     ^<Priority^>7^</Priority^>
+	echo   ^</Settings^>
+	echo   ^<Actions Context="Author"^>
+	echo     ^<Exec^>
+	echo       ^<Command^>"%targetDir%\Always Active Hours.bat"^</Command^>
+	echo       ^<Arguments^>/task^</Arguments^>
+	echo     ^</Exec^>
+	echo   ^</Actions^>
+	echo ^</Task^>
+) > "%xmlPath%"
+
+:: Verify the existence of the XML file
+if not exist "%xmlPath%" (
+	echo XML file "%xmlPath%" does not exist.
+	echo Unable to create the scheduled task without the XML configuration.
+	echo.
+	echo -------------------------------------------------------
+	echo.
+	pause
+	goto menu
+)
+
+:: Register the task using the XML file
+schtasks /create /tn "%taskName%" /xml "%xmlPath%" /ru SYSTEM /f >"%taskErrorLog%" 2>&1
+
+:: Clean up the XML file
+del "%xmlPath%" >nul 2>&1
+
+:: Set the task action
+set "taskAction=create"
 
 goto task_check
 :task_check
