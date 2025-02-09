@@ -324,7 +324,7 @@ REM Create temporary XML file
 	echo         ^<Interval^>PT1H^</Interval^>
 	echo         ^<StopAtDurationEnd^>false^</StopAtDurationEnd^>
 	echo       ^</Repetition^>
-	echo       ^<StartBoundary^>%date%T00:00:00^</StartBoundary^>
+	echo       ^<StartBoundary^>%yyyy%-%mm%-%dd%T00:00:00^</StartBoundary^>
 	echo       ^<Enabled^>true^</Enabled^>
 	echo       ^<ScheduleByDay^>
 	echo         ^<DaysInterval^>1^</DaysInterval^>
