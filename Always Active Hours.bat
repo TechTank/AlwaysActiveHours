@@ -70,6 +70,29 @@ goto menu
 
 :: ========== ========== ========== ========== ==========
 
+:get_active_hours_range
+
+:: Fetch Active Hours Max Range if set by policy
+reg query "HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v ActiveHoursMaxRange >nul 2>&1
+if %errorlevel% equ 0 (
+	for /f "tokens=3" %%A in ('reg query "HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v ActiveHoursMaxRange 2^>nul') do set activeHoursMaxRange=%%A
+) else (
+	set activeHoursMaxRange=0x12
+)
+set /a activeHoursMaxRangeDec=%activeHoursMaxRange%
+
+:: Clamp range between 8 and 18 hours (Windows defaults to 18 if out of range)
+if %activeHoursMaxRangeDec% LSS 8 (
+	set activeHoursMaxRangeDec=18
+)
+if %activeHoursMaxRangeDec% GTR 18 (
+	set activeHoursMaxRangeDec=18
+)
+
+goto :eof
+
+:: ========== ========== ========== ========== ==========
+
 :convert_to_ampm
 
 :: Convert 24-hour time to AM/PM format
@@ -83,6 +106,7 @@ if %hour% LSS 12 (
 	if %hour% GTR 12 set /a hour-=12
 )
 set "%2=%hour%%suffix%"
+
 goto :eof
 
 :: ========== ========== ========== ========== ==========
@@ -113,6 +137,9 @@ if %errorlevel% equ 0 (
 	set noRebootPolicy=false
 )
 
+:: Resolve the effective active hours range (policy or default)
+call :get_active_hours_range
+
 :: ==========
 
 :menu_display
@@ -136,6 +163,15 @@ if defined activeStartDisplay if defined activeEndDisplay (
 	echo !space!Your current active hours are set between %activeStartDisplay% and %activeEndDisplay%
 ) else (
 	echo Error: Unable to fetch active hours settings.
+)
+
+if not "%activeHoursMaxRangeDec%"=="18" (
+	if %activeHoursMaxRangeDec% LSS 10 (
+		set "space=     "
+	) else (
+		set "space=    "
+	)
+	echo !space!Your active hours range is limited to %activeHoursMaxRangeDec% hours
 )
 
 echo.
@@ -521,12 +557,19 @@ for /F "tokens=2 delims==" %%H in ('wmic path win32_localtime get hour /value') 
 set /A currentHour=%currentHour%+0
 if "%currentHour%"=="" set currentHour=0
 
-:: Calculate startHour
-set /A startHour=(currentHour - 9)
-if %startHour% LSS 0 set /A startHour+=24
+:: Resolve the effective active hours range (policy or default)
+call :get_active_hours_range
 
-:: Calculate endHour
-set /A endHour=(currentHour + 9) %% 24
+:: Calculate half-range (floor/ceil for odd numbers)
+set /a halfLow=activeHoursMaxRangeDec / 2
+set /a halfHigh=activeHoursMaxRangeDec - halfLow
+
+:: Calculate start hour
+set /a startHour=(currentHour - halfLow)
+if %startHour% LSS 0 set /a startHour+=24
+
+:: Calculate end hour
+set /a endHour=(currentHour + halfHigh) %% 24
 
 :: Write registry values
 reg add "HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings" /v ActiveHoursStart /t REG_DWORD /d %startHour% /f >nul
