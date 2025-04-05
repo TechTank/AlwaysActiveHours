@@ -194,7 +194,7 @@ echo   6. Exit
 echo.
 echo -------------------------------------------------------
 echo.
-set /p "choice=  Enter your choice (1-5): "
+set /p "choice=  Enter your choice (1-6): "
 
 if "%choice%" == "1" goto toggle_task
 if "%choice%" == "2" goto toggle_no_reboot
