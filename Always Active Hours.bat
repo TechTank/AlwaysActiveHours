@@ -188,18 +188,20 @@ if "%noRebootPolicy%"=="true" (
 	echo   2. Enable No Auto Reboot Policy
 )
 echo   3. Shift Active Hours
-echo   4. Refresh
-echo   5. Exit
+echo   4. Delay Aggressive Updates
+echo   5. Refresh
+echo   6. Exit
 echo.
 echo -------------------------------------------------------
 echo.
-set /p choice="  Enter your choice (1-5): "
+set /p "choice=  Enter your choice (1-5): "
 
-if '%choice%' == '1' goto toggle_task
-if '%choice%' == '2' goto toggle_no_reboot
-if '%choice%' == '3' goto shift_hours
-if '%choice%' == '4' goto menu
-if '%choice%' == '5' goto end
+if "%choice%" == "1" goto toggle_task
+if "%choice%" == "2" goto toggle_no_reboot
+if "%choice%" == "3" goto shift_hours
+if "%choice%" == "4" goto delay_updates
+if "%choice%" == "5" goto menu
+if "%choice%" == "6" goto end
 goto menu_display
 
 :: ========== ========== ========== ========== ==========
@@ -619,6 +621,566 @@ echo Active hours shifted to %newStartDisplay% - %newEndDisplay%.
 echo.
 pause
 goto menu
+
+:: ========== ========== ========== ========== ==========
+
+:delay_updates
+setlocal
+
+:: Compliance Deadline Master Toggle (0 or 1, optional, default 0)
+set complianceDeadline=0
+for /f "tokens=3" %%A in ('reg query "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v SetComplianceDeadline 2^>nul') do (
+	set /a "val=%%A"
+	if !val! equ 1 (
+		set "complianceDeadline=1"
+	) else if !val! equ 0 (
+		set "complianceDeadline=0"
+	) else (
+		set "complianceDeadline=0"
+	)
+)
+
+:: Feature Update Delay (0–30, default 2)
+set "ConfigDeadlineForFeatureUpdates=-1"
+for /f "tokens=3" %%A in ('reg query "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v ConfigureDeadlineForFeatureUpdates 2^>nul') do (
+	set /a "val=%%A"
+	if !val! geq 0 if !val! leq 30 (
+		set "ConfigDeadlineForFeatureUpdates=!val!"
+	) else (
+		set "ConfigDeadlineForFeatureUpdates=2"
+	)
+)
+
+:: Quality Update Delay (0–30, default 2)
+set "ConfigDeadlineForQualityUpdates=-1"
+for /f "tokens=3" %%A in ('reg query "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v ConfigureDeadlineForQualityUpdates 2^>nul') do (
+	set /a "val=%%A"
+	if !val! geq 0 if !val! leq 30 (
+		set "ConfigDeadlineForQualityUpdates=!val!"
+	) else (
+		set "ConfigDeadlineForQualityUpdates=2"
+	)
+)
+
+:: Grace Period (0–7, default 2)
+set "ConfigDeadlineGracePeriod=-1"
+for /f "tokens=3" %%A in ('reg query "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v ConfigureDeadlineGracePeriod 2^>nul') do (
+	set /a "val=%%A"
+	if !val! geq 0 if !val! leq 7 (
+		set "ConfigDeadlineGracePeriod=!val!"
+	) else (
+		set "ConfigDeadlineGracePeriod=2"
+	)
+)
+
+:: No Auto Reboot (0 or 1, default 0)
+set "ConfigDeadlineNoAutoReboot=-1"
+for /f "tokens=3" %%A in ('reg query "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v ConfigureDeadlineNoAutoReboot 2^>nul') do (
+	set /a "val=%%A"
+	if !val! equ 1 (
+		set "ConfigDeadlineNoAutoReboot=1"
+	) else if !val! equ 0 (
+		set "ConfigDeadlineNoAutoReboot=0"
+	) else (
+		set "ConfigDeadlineNoAutoReboot=0"
+	)
+)
+
+:: Reset choice variable
+set "choice="
+
+:: Display the menu
+cls
+echo ╔═════════════════════════════════════════════════════╗
+echo ║              Delay Aggressive Updates               ║
+echo ╚═════════════════════════════════════════════════════╝
+echo.
+
+if "%complianceDeadline%"=="1" (
+	echo         Aggressive update deadlines are ENABLED
+	echo.
+
+	set "spaces=                                                   "
+
+	echo ╔═════════════════════════════════════════════════════╗
+
+	:: Feature Update Delay
+	set "label=Feature Update Delay"
+	set "line=║  !label!"
+	set "line=!line!!spaces!"
+	if %ConfigDeadlineForFeatureUpdates% neq -1 (
+		if %ConfigDeadlineForFeatureUpdates% == 1 (
+			set "value=1 day"
+			set "line=!line:~0,45!  !value!"
+		) else (
+			set "value=%ConfigDeadlineForFeatureUpdates% days"
+			if %ConfigDeadlineForFeatureUpdates% lss 9 (
+				set "line=!line:~0,44!  !value!"
+			) else (
+				set "line=!line:~0,43!  !value!"
+			)
+		)
+	) else (
+		set "value=2 days (default)"
+		set "line=!line:~0,34!  !value!"
+	)
+	set "line=!line!!spaces!"
+	set "line=!line:~0,53! ║"
+	echo !line!
+
+	echo ╟─────────────────────────────────────────────────────╢
+
+	:: Quality Update Delay
+	set "label=Quality Update Delay"
+	set "line=║  !label!"
+	set "line=!line!!spaces!"
+	if %ConfigDeadlineForQualityUpdates% neq -1 (
+		if %ConfigDeadlineForQualityUpdates% == 1 (
+			set "value=1 day"
+			set "line=!line:~0,45!  !value!"
+		) else (
+			set "value=%ConfigDeadlineForQualityUpdates% days"
+			if %ConfigDeadlineForQualityUpdates% lss 9 (
+				set "line=!line:~0,44!  !value!"
+			) else (
+				set "line=!line:~0,43!  !value!"
+			)
+		)
+	) else (
+		set "value=2 days (default)"
+		set "line=!line:~0,34!  !value!"
+	)
+	set "line=!line!!spaces!"
+	set "line=!line:~0,53! ║"
+	echo !line!
+
+	echo ╟─────────────────────────────────────────────────────╢
+
+	:: Grace Period
+	set "label=Grace Period"
+	set "line=║  !label!"
+	set "line=!line!!spaces!"
+	if %ConfigDeadlineGracePeriod% neq -1 (
+		if %ConfigDeadlineGracePeriod% == 1 (
+			set "value=1 day"
+			set "line=!line:~0,45!  !value!"
+		) else (
+			set "value=%ConfigDeadlineGracePeriod% days"
+			if %ConfigDeadlineGracePeriod% lss 9 (
+				set "line=!line:~0,44!  !value!"
+			) else (
+				set "line=!line:~0,43!  !value!"
+			)
+		)
+	) else (
+		set "value=2 days (default)"
+		set "line=!line:~0,34!  !value!"
+	)
+	set "line=!line!!spaces!"
+	set "line=!line:~0,53! ║"
+	echo !line!
+
+	echo ╟─────────────────────────────────────────────────────╢
+
+	:: No Auto Reboot
+	set "label=Prevent Auto Reboot Until Deadline"
+	set "line=║  !label!"
+	set "line=!line!!spaces!"
+	if %ConfigDeadlineNoAutoReboot% neq -1 (
+		if %ConfigDeadlineNoAutoReboot% == 1 (
+			set "value=True"
+			set "line=!line:~0,46!  !value!"
+		) else (
+			set "value=False"
+			set "line=!line:~0,45!  !value!"
+		)
+	) else (
+		set "value=No (default)"
+		set "line=!line:~0,38!  !value!"
+	)
+	set "line=!line!!spaces!"
+	set "line=!line:~0,53! ║"
+	echo !line!
+
+	echo ╚═════════════════════════════════════════════════════╝
+) else (
+	echo         Aggressive update deadlines are DISABLED
+)
+
+echo.
+echo -------------------------------------------------------
+echo.
+echo   1. Automatically Set Max Delays
+echo   2. Manually Configure Delays
+echo   3. Remove All Delay Settings
+echo   4. Return To Main Menu
+echo.
+echo -------------------------------------------------------
+echo.
+set /p "choice=  Enter your choice (1-4): "
+
+if "%choice%" == "1" goto set_max_delays
+if "%choice%" == "2" goto manual_delay_config
+if "%choice%" == "3" goto clear_delays
+if "%choice%" == "4" goto menu
+goto delay_updates
+
+:: ========== ========== ========== ========== ==========
+
+:set_max_delays
+
+reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v SetComplianceDeadline /t REG_DWORD /d 1 /f >nul
+reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v ConfigureDeadlineForFeatureUpdates /t REG_DWORD /d 30 /f >nul
+reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v ConfigureDeadlineForQualityUpdates /t REG_DWORD /d 7 /f >nul
+reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v ConfigureDeadlineGracePeriod /t REG_DWORD /d 7 /f >nul
+reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v ConfigureDeadlineNoAutoReboot /t REG_DWORD /d 1 /f >nul
+
+echo.
+echo -------------------------------------------------------
+echo.
+
+echo Aggressive update delays have been set to maximum.
+
+echo.
+pause
+goto delay_updates
+
+:: ========== ========== ========== ========== ==========
+
+:manual_delay_config
+
+cls
+echo ╔═════════════════════════════════════════════════════╗
+echo ║           Manual Aggressive Update Settings         ║
+echo ╚═════════════════════════════════════════════════════╝
+echo.
+echo Press Enter to skip any setting and leave it unchanged.
+echo.
+
+:: ~~~~~~~~~~
+
+:: Check if featureDays is already set
+if defined featureDays (
+	echo Feature Update Delay will be set to: %featureDays%
+	goto prompt_quality_delay
+)
+
+:: Set userInput to an empty string
+set "userInput="
+
+:: Prompt for Feature Update delay (0-30 days)
+set /p "userInput=Feature Update Delay (0-30 days): "
+
+:: Use a poison to check for nothing
+if "!userInput!"=="" (
+	if "%ConfigFeatureDelay%"=="" (
+		echo The configuration is not set. Default is 2.
+		set "featureDays=2"
+	) else (
+		echo No input provided. Keeping the current setting.
+		set "featureDays=%ConfigFeatureDelay%"
+	)
+	pause
+	goto manual_delay_config
+)
+
+:: Set errorlevel to 0
+(call )
+
+:: Perform arithmatic
+set /a "featureDays=userInput + 0" 2>nul
+
+:: Check for errors
+if !errorlevel! neq 0 (
+	echo Input error. Please try again.
+	pause
+	set featureDays=
+	goto manual_delay_config
+)
+
+:: Verify the input matches the evaluated integer
+if "%featureDays%" EQU "%userInput%" (
+	:: Validate the integer
+	if %featureDays% lss 0 (
+		echo Minimum value is 0.
+		pause
+		set featureDays=
+		goto manual_delay_config
+	)
+	if %featureDays% gtr 30 (
+		echo Maximum value is 30.
+		pause
+		set featureDays=
+		goto manual_delay_config
+	)
+) else (
+	:: Input was not a valid integer
+	echo Invalid input. Please enter a numeric value.
+	pause
+	set featureDays=
+	goto manual_delay_config
+)
+
+:: Interger has been accepted
+goto manual_delay_config
+
+:: ~~~~~~~~~~
+
+:prompt_quality_delay
+
+:: Check if qualityDays is already set
+if defined qualityDays (
+	echo Quality Update Delay will be set to: %qualityDays%
+	goto prompt_grace_period
+)
+
+:: Set userInput to an empty string
+set "userInput="
+
+:: Prompt for Quality Update delay (0-30 days)
+set /p "userInput=Quality Update Delay (0-30 days): "
+
+:: Use a poison to check for nothing
+if "!userInput!"=="" (
+	if "%ConfigQualityDelay%"=="" (
+		echo The configuration is not set. Default is 2.
+		set "qualityDays=2"
+	) else (
+		echo No input provided. Keeping the current setting.
+		set "qualityDays=%ConfigQualityDelay%"
+	)
+	pause
+	goto manual_delay_config
+)
+
+:: Set errorlevel to 0
+(call )
+
+:: Perform arithmatic
+set /a "qualityDays=userInput + 0" 2>nul
+
+:: Check for errors
+if !errorlevel! neq 0 (
+	echo Input error. Please try again.
+	pause
+	set qualityDays = ConfigQualityDelay
+	goto manual_delay_config
+)
+
+:: Verify the input matches the evaluated integer
+if "%qualityDays%" EQU "%userInput%" (
+	:: Validate the integer
+	if %qualityDays% lss 0 (
+		echo Minimum value is 0.
+		pause
+		set qualityDays=
+		goto manual_delay_config
+	)
+	if %qualityDays% gtr 30 (
+		echo Maximum value is 30.
+		pause
+		set qualityDays=
+		goto manual_delay_config
+	)
+) else (
+	:: Input was not a valid integer
+	echo Invalid input. Please enter a numeric value.
+	pause
+	set qualityDays=
+	goto manual_delay_config
+)
+
+:: Interger has been accepted
+goto manual_delay_config
+
+:: ~~~~~~~~~~
+
+:prompt_grace_period
+
+:: Check if graceDays is already set
+if defined graceDays (
+	echo Grace Period will be set to: %graceDays%
+	goto prompt_no_auto_reboot
+)
+
+:: Set userInput to an empty string
+set "userInput="
+
+:: Prompt for Grace Period (0-7 days)
+set /p "userInput=Grace Period After Deadline (0-7 days): "
+
+:: Use a poison to check for nothing
+if "!userInput!"=="" (
+	if "%ConfigGraceDelay%"=="" (
+		echo The configuration is not set. Default is 2.
+		set "graceDays=2"
+	) else (
+		echo No input provided. Keeping the current setting.
+		set "graceDays=%ConfigGraceDelay%"
+	)
+	pause
+	goto manual_delay_config
+)
+
+:: Set errorlevel to 0
+(call )
+
+:: Perform arithmatic
+set /a "graceDays=userInput + 0" 2>nul
+
+:: Check for errors
+if !errorlevel! neq 0 (
+	echo Input error. Please try again.
+	pause
+	set graceDays=
+	goto manual_delay_config
+)
+
+:: Verify the input matches the evaluated integer
+if "%graceDays%" EQU "%userInput%" (
+	:: Validate the integer
+	if %graceDays% lss 0 (
+		echo Minimum value is 0.
+		pause
+		set graceDays=
+		goto manual_delay_config
+	)
+	if %graceDays% gtr 7 (
+		echo Maximum value is 7.
+		pause
+		set graceDays=
+		goto manual_delay_config
+	)
+) else (
+	:: Input was not a valid integer
+	echo Invalid input. Please enter a numeric value.
+	pause
+	set graceDays=
+	goto manual_delay_config
+)
+
+:: Interger has been accepted
+goto manual_delay_config
+
+:: ~~~~~~~~~~
+
+:prompt_no_auto_reboot
+
+:: Check if noRebootFlag is already set
+if defined noRebootFlag (
+	echo No Auto Reboot flag will be set to: %noRebootFlag%
+	goto delay_config_complete
+)
+
+:: Set userInput to an empty string
+set "userInput="
+
+:: Prompt for prevent auto rebooting during the grace period (1/y/yes, 0/n/no)
+set /p "userInput=Prevent Auto Reboot Until Grace Period Ends? (Y,N): "
+
+if not defined userInput (
+	if "%ConfigNoRebootDelay%"=="" (
+		echo The configuration is not set. Default is 0.
+		set "noRebootFlag=0"
+	) else (
+		echo No input provided. Keeping the current setting.
+		set "noRebootFlag=%ConfigNoRebootDelay%"
+	)
+	pause
+	goto manual_delay_config
+)
+
+:: Remove leading and trailing spaces, and convert to lowercase
+set "response=%userInput%"
+for %%A in (E N O S Y) do (
+	set "response=!response:%%A=%%A!"
+)
+set "response=!response: =!"
+
+:: Match user input to valid responses
+if /i "%response%"=="1" set noRebootFlag=1
+if /i "%response%"=="y" set noRebootFlag=1
+if /i "%response%"=="yes" set noRebootFlag=1
+if /i "%response%"=="0" set noRebootFlag=0
+if /i "%response%"=="n" set noRebootFlag=0
+if /i "%response%"=="no" set noRebootFlag=0
+
+:: Check if noRebootFlag was set
+if not defined noRebootFlag (
+	echo Invalid input. Please enter 1/Y/Yes or 0/N/No.
+	pause
+	goto manual_delay_config
+)
+
+:: Response has been accepted, write to the registry
+goto manual_delay_config
+
+:: ~~~~~~~~~~
+
+:delay_config_complete
+
+:: Always enable SetComplianceDeadline if any values were provided
+if defined featureDays (
+	goto compliance
+) else if defined qualityDays (
+	goto compliance
+) else if defined graceDays (
+	goto compliance
+) else if defined noRebootFlag (
+	goto compliance
+)
+
+goto skip_compliance
+:compliance
+reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v SetComplianceDeadline /t REG_DWORD /d 1 /f >nul
+:skip_compliance
+
+:: Write the configuration to the registry
+if defined featureDays (
+	reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v ConfigureDeadlineForFeatureUpdates /t REG_DWORD /d %featureDays% /f >nul
+	set featureDays=
+)
+if defined qualityDays (
+	reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v ConfigureDeadlineForQualityUpdates /t REG_DWORD /d %qualityDays% /f >nul
+	set qualityDays=
+)
+if defined graceDays (
+	reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v ConfigureDeadlineGracePeriod /t REG_DWORD /d %graceDays% /f >nul
+	set graceDays=
+)
+if defined noRebootFlag (
+	reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v ConfigureDeadlineNoAutoReboot /t REG_DWORD /d %noRebootFlag% /f >nul
+	set noRebootFlag=
+)
+
+echo.
+echo -------------------------------------------------------
+echo.
+
+echo Aggressive update delays have been set.
+
+echo.
+pause
+endlocal
+goto delay_updates
+
+:: ========== ========== ========== ========== ==========
+
+:clear_delays
+
+for %%V in (SetComplianceDeadline ConfigureDeadlineForFeatureUpdates ConfigureDeadlineForQualityUpdates ConfigureDeadlineGracePeriod ConfigureDeadlineNoAutoReboot) do (
+	reg delete "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v %%V /f >nul 2>&1
+)
+
+echo.
+echo -------------------------------------------------------
+echo.
+
+echo All aggressive update delay settings have been removed.
+
+echo.
+pause
+goto delay_updates
 
 :: ========== ========== ========== ========== ==========
 
