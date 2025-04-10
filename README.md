@@ -1,5 +1,9 @@
-Overview
+Fuck You Microsoft
 ========
+Because I've set everything up 30 times and the computer still automatically resets. Fuck you.
+
+Overview
+------------
 "Always Active Hours.bat" is a self-contained batch script designed to manage and adjust your Windows Active Hours. By shifting the active hours based on the current time, the tool helps prevent Windows from automatically restarting your PC to complete updates, reducing the risk of unexpected reboots during use.
 
 The script autonomously installs itself when enabling its scheduled task, runs periodic adjustments as needed, and removes itself cleanly when the scheduled task is disabled. It operates without external dependencies, relying solely on built-in Windows commands and registry modifications.
