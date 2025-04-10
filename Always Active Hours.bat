@@ -348,7 +348,7 @@ REM Create temporary XML file
 	echo   ^<RegistrationInfo^>
 	echo     ^<Date^>%formattedDate%^</Date^>
 	echo     ^<Author^>%username%^</Author^>
-	echo     ^<URI^\>%taskName%^</URI^>
+	echo     ^<URI^>\%taskName%^</URI^>
 	echo   ^</RegistrationInfo^>
 	echo   ^<Triggers^>
 	echo     ^<RegistrationTrigger^>
