@@ -1,2 +1,11 @@
-
+# Fractal development directory
 /_related files
+
+# Windows system files
+Thumbs.db
+desktop.ini
+
+# Batch-generated files
+*.log
+*.reg
+*.xml

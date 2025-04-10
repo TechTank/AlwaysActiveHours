@@ -906,8 +906,7 @@ if "%featureDays%" EQU "%userInput%" (
 		pause
 		set featureDays=
 		goto manual_delay_config
-	)
-	if %featureDays% gtr 30 (
+	) else if %featureDays% gtr 30 (
 		echo Maximum value is 30.
 		pause
 		set featureDays=
@@ -975,8 +974,7 @@ if "%qualityDays%" EQU "%userInput%" (
 		pause
 		set qualityDays=
 		goto manual_delay_config
-	)
-	if %qualityDays% gtr 30 (
+	) else if %qualityDays% gtr 30 (
 		echo Maximum value is 30.
 		pause
 		set qualityDays=
@@ -1044,8 +1042,7 @@ if "%graceDays%" EQU "%userInput%" (
 		pause
 		set graceDays=
 		goto manual_delay_config
-	)
-	if %graceDays% gtr 7 (
+	) else if %graceDays% gtr 7 (
 		echo Maximum value is 7.
 		pause
 		set graceDays=
