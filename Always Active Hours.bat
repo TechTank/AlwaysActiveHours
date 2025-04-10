@@ -873,12 +873,12 @@ set /p "userInput=Feature Update Delay (0-30 days): "
 
 :: Use a poison to check for nothing
 if "!userInput!"=="" (
-	if "%ConfigFeatureDelay%"=="" (
+	if %ConfigDeadlineForFeatureUpdates% == -1 (
 		echo The configuration is not set. Default is 2.
 		set "featureDays=2"
 	) else (
 		echo No input provided. Keeping the current setting.
-		set "featureDays=%ConfigFeatureDelay%"
+		set "featureDays=%ConfigDeadlineForFeatureUpdates%"
 	)
 	pause
 	goto manual_delay_config
@@ -942,12 +942,12 @@ set /p "userInput=Quality Update Delay (0-30 days): "
 
 :: Use a poison to check for nothing
 if "!userInput!"=="" (
-	if "%ConfigQualityDelay%"=="" (
+	if %ConfigDeadlineForQualityUpdates% == -1 (
 		echo The configuration is not set. Default is 2.
 		set "qualityDays=2"
 	) else (
 		echo No input provided. Keeping the current setting.
-		set "qualityDays=%ConfigQualityDelay%"
+		set "qualityDays=%ConfigDeadlineForQualityUpdates%"
 	)
 	pause
 	goto manual_delay_config
@@ -963,7 +963,7 @@ set /a "qualityDays=userInput + 0" 2>nul
 if !errorlevel! neq 0 (
 	echo Input error. Please try again.
 	pause
-	set qualityDays = ConfigQualityDelay
+	set qualityDays=
 	goto manual_delay_config
 )
 
@@ -1011,12 +1011,12 @@ set /p "userInput=Grace Period After Deadline (0-7 days): "
 
 :: Use a poison to check for nothing
 if "!userInput!"=="" (
-	if "%ConfigGraceDelay%"=="" (
+	if %ConfigDeadlineGracePeriod% == -1 (
 		echo The configuration is not set. Default is 2.
 		set "graceDays=2"
 	) else (
 		echo No input provided. Keeping the current setting.
-		set "graceDays=%ConfigGraceDelay%"
+		set "graceDays=%ConfigDeadlineGracePeriod%"
 	)
 	pause
 	goto manual_delay_config
@@ -1079,12 +1079,12 @@ set "userInput="
 set /p "userInput=Prevent Auto Reboot Until Grace Period Ends? (Y,N): "
 
 if not defined userInput (
-	if "%ConfigNoRebootDelay%"=="" (
+	if %ConfigDeadlineNoAutoReboot% == -1 (
 		echo The configuration is not set. Default is 0.
 		set "noRebootFlag=0"
 	) else (
 		echo No input provided. Keeping the current setting.
-		set "noRebootFlag=%ConfigNoRebootDelay%"
+		set "noRebootFlag=%ConfigDeadlineNoAutoReboot%"
 	)
 	pause
 	goto manual_delay_config
