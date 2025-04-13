@@ -179,6 +179,7 @@ set "dateStem=!dateStem:MMMM=M!"
 set "dateStem=!dateStem:MMM=M!"
 set "dateStem=!dateStem:MM=M!"
 set "dateStem=!dateStem:mm=M!"
+set "dateStem=!dateStem:d=D!"
 set "dateStem=!dateStem:dd=D!"
 set "dateStem=!dateStem:DD=D!"
 :: Remove any occurrences of the separator and common delimiters
