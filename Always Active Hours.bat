@@ -62,8 +62,8 @@ if "%asTask%"=="true" (
 :: Set task variables
 set "taskName=Always Active Hours"
 set "scriptPath=%~f0"
-set "xmlPath=%temp%\AlwaysActiveHours.xml"
 set "targetDir=%ProgramData%\AlwaysActiveHours"
+set "xmlPath=%temp%\AlwaysActiveHours.xml"
 set "taskErrorLog=%temp%\schtasks_error.log"
 
 goto menu
@@ -135,8 +135,10 @@ goto :eof
 	set "dateStem=!dateStem:YYYY=Y!"
 	set "dateStem=!dateStem:yy=Y!"
 	set "dateStem=!dateStem:YY=Y!"
-	set "dateStem=!dateStem:mm=M!"
+	set "dateStem=!dateStem:MMMM=M!"
+	set "dateStem=!dateStem:MMM=M!"
 	set "dateStem=!dateStem:MM=M!"
+	set "dateStem=!dateStem:mm=M!"
 	set "dateStem=!dateStem:dd=D!"
 	set "dateStem=!dateStem:DD=D!"
 	:: Remove any occurrences of the separator and common delimiters
@@ -187,6 +189,41 @@ goto :eof
 	:: If the year is 2 digits, prefix it with "20"
 	if "!year:~2!"=="" (
 		set "year=20!year!"
+	)
+
+	:: Convert month names to numbers if necessary...
+
+	:: ~~~~~~~~~~ ~~~~~~~~~~ ~~~~~~~~~~
+
+	:: English
+	if /i "!month!"=="Jan" set "month=1"
+	if /i "!month!"=="Feb" set "month=2"
+	if /i "!month!"=="Mar" set "month=3"
+	if /i "!month!"=="Apr" set "month=4"
+	if /i "!month!"=="May" set "month=5"
+	if /i "!month!"=="Jun" set "month=6"
+	if /i "!month!"=="Jul" set "month=7"
+	if /i "!month!"=="Aug" set "month=8"
+	if /i "!month!"=="Sep" set "month=9"
+	if /i "!month!"=="Oct" set "month=10"
+	if /i "!month!"=="Nov" set "month=11"
+	if /i "!month!"=="Dec" set "month=12"
+
+	:: ~~~~~~~~~~ ~~~~~~~~~~ ~~~~~~~~~~
+
+	:: Preserve original value
+	set "value=!month!"
+
+	:: Try arithmetic eval, will fail if not numeric
+	2>nul set /a _testNum=value+0
+	if errorlevel 1 (
+		set "month=1"
+	) else (
+		:: Ensure fully numeric by comparing lengths
+		set "checkNum=!_testNum!"
+		if not "!value!"=="!checkNum!" (
+			set "month=1"
+		)
 	)
 
 	:: Convert to numbers to remove any existing leading zeros, then pad to two digits if needed
