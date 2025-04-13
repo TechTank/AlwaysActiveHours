@@ -151,6 +151,68 @@ goto :eof
 
 :: ========== ========== ========== ========== ==========
 
+:parse_system_time
+
+setlocal EnableDelayedExpansion
+
+:: Extract the hour, minute, and second from %TIME%
+set "hour=%TIME:~0,2%"
+set "minute=%TIME:~3,2%"
+set "second=%TIME:~6,2%"
+
+:: Trim leading spaces
+set "hour=!hour: =!"
+set "minute=!minute: =!"
+set "second=!second: =!"
+
+:: Validate that hour, minute, and second are numeric
+set "invalidTime=0"
+set /a dummy=1*%hour% >nul 2>&1 || set "invalidTime=1"
+set /a dummy=1*%minute% >nul 2>&1 || set "invalidTime=1"
+set /a dummy=1*%second% >nul 2>&1 || set "invalidTime=1"
+
+if "!hour:~0,1!"=="0" if "!hour!" NEQ "0" (
+	set "hour=!hour:~1!"
+)
+if "!minute:~0,1!"=="0" if "!minute!" NEQ "0" (
+	set "minute=!minute:~1!"
+)
+if "!second:~0,1!"=="0" if "!second!" NEQ "0" (
+	set "second=!second:~1!"
+)
+
+:: Force two-digit format
+if !hour! LSS 10 (
+	set "hh=0!hour!"
+) else (
+	set "hh=!hour!"
+)
+if !minute! LSS 10 (
+	set "mm=0!minute!"
+) else (
+	set "mm=!minute!"
+)
+if !second! LSS 10 (
+	set "ss=0!second!"
+) else (
+	set "ss=!second!"
+)
+
+:: End the local environment and return the values to the global scope
+endlocal & (
+	set "HOUR=%hour%"
+	set "MINUTE=%minute%"
+	set "SECOND=%second%"
+	set "hh=%hh%"
+	set "mm=%mm%"
+	set "ss=%ss%"
+	set "INVALID_TIME=%invalidTime%"
+)
+
+goto :eof
+
+:: ========== ========== ========== ========== ==========
+
 :parse_system_date
 
 setlocal EnableDelayedExpansion
@@ -400,8 +462,8 @@ set "arrow=   "
 set /a start=%1
 set /a end=%2
 
-:: Get the current hour
-for /f "tokens=2 delims==" %%H in ('wmic path win32_localtime get hour /value') do set currentHour=%%H
+:: Parse the system time to set the current hour
+call :parse_system_time
 
 :: Normalize end hour for wrap-around
 if %end% LSS %start% (
@@ -409,25 +471,26 @@ if %end% LSS %start% (
 ) else (
 	set /a normalized_end=%end%
 )
+call :parse_system_time
 
 :: Generate the bar and arrow lines
 for /l %%H in (0,1,23) do (
-	set /a hour=%%H
-	set /a normalized_hour=hour
-	if !hour! LSS %start% set /a normalized_hour=hour+24
+	set /a h=%%H
+	set /a normalized_hour=h
+	if !h! LSS %start% set /a normalized_hour=h+24
 
-	if %%H EQU %currentHour% (
+	if %%H EQU %HOUR% (
 		if !normalized_hour! GEQ %start% if !normalized_hour! LSS %normalized_end% (
-			set "block=█"  :: Active current hour
+			set "block=█" :: Active current hour
 		) else (
-			set "block=▒"  :: Inactive current hour
+			set "block=▒" :: Inactive current hour
 		)
 		set "arrow=!arrow! ↓"
 	) else (
 		if !normalized_hour! GEQ %start% if !normalized_hour! LSS %normalized_end% (
-			set "block=▓"  :: Active hours
+			set "block=▓" :: Active hours
 		) else (
-			set "block=░"  :: Inactive hours
+			set "block=░" :: Inactive hours
 		)
 		set "arrow=!arrow!  "
 	)
@@ -454,6 +517,7 @@ echo !arrow!
 echo !bar!
 echo !labels!
 endlocal
+
 goto :eof
 
 :: ========== ========== ========== ========== ==========
@@ -475,25 +539,15 @@ if "%taskExists%"=="true" (
 	goto task_check
 )
 
-:: Get time components
-set hh=%TIME:~0,2%
-set min=%TIME:~3,2%
-set ss=%TIME:~6,2%
-
-:: Trim leading space for single-digit hours
-setlocal enabledelayedexpansion
-set hh=!hh: =!
-if !hh! LSS 10 set hh=0!hh!
-endlocal & set hh=%hh%
-
-:: Parse the date string by reading the language settings
+:: Parse the time and date strings by reading the language settings
+call :parse_system_time
 call :parse_system_date
 if "%INVALID_MONTH%"=="1" (
 	set "MONTH=01"
 )
 
 :: Format the date-time as YYYY-MM-DDTHH:mm:ss
-set formattedDate=%YEAR%-%MONTH%-%DAY%T%hh%:%min%:%ss%
+set formattedDate=%YEAR%-%MONTH%-%DAY%T%hh%:%mm%:%ss%
 
 :: Add the scheduled task using XML
 echo Creating the scheduled task...
@@ -728,12 +782,8 @@ call :title "Shift Active Hours"
 
 echo Shifting active hours...
 
-:: Get current hour using WMIC (24-hour format)
-for /F "tokens=2 delims==" %%H in ('wmic path win32_localtime get hour /value') do set currentHour=%%H
-
-:: Ensure currentHour is numeric
-set /A currentHour=%currentHour%+0
-if "%currentHour%"=="" set currentHour=0
+:: Parse the system time to get the current hour
+call :parse_system_time
 
 :: Resolve the effective active hours range (policy or default)
 call :get_active_hours_range
@@ -743,11 +793,11 @@ set /a halfLow=activeHoursMaxRangeDec / 2
 set /a halfHigh=activeHoursMaxRangeDec - halfLow
 
 :: Calculate start hour
-set /a startHour=(currentHour - halfLow)
+set /a startHour=(HOUR - halfLow)
 if %startHour% LSS 0 set /a startHour+=24
 
 :: Calculate end hour
-set /a endHour=(currentHour + halfHigh) %% 24
+set /a endHour=(HOUR + halfHigh) %% 24
 
 :: Write registry values
 reg add "HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings" /v ActiveHoursStart /t REG_DWORD /d %startHour% /f >nul
