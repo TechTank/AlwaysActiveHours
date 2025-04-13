@@ -184,6 +184,11 @@ goto :eof
 	if /i "!order:~2,1!"=="M" (set "month=!part3!")
 	if /i "!order:~2,1!"=="D" (set "day=!part3!")
 
+	:: If the year is 2 digits, prefix it with "20"
+	if "!year:~2!"=="" (
+		set "year=20!year!"
+	)
+
 	:: Convert to numbers to remove any existing leading zeros, then pad to two digits if needed
 	set /a m=month
 	if %m% LSS 10 (
