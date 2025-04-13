@@ -111,6 +111,105 @@ goto :eof
 
 :: ========== ========== ========== ========== ==========
 
+:parse_system_date
+
+	setlocal EnableDelayedExpansion
+
+	:: Retrieve Regional Date Settings
+	for /f "tokens=2,*" %%A in ('reg query "HKCU\Control Panel\International" /v sShortDate 2^>nul ^| findstr /i "sShortDate"') do (
+		set "shortDateFormat=%%B"
+	)
+	for /f "tokens=2,*" %%A in ('reg query "HKCU\Control Panel\International" /v sDate 2^>nul ^| findstr /i "sDate"') do (
+		set "dateSeparator=%%B"
+	)
+
+	:: Remove "REG_SZ" if present, and trim extra spaces
+	set "shortDateFormat=%shortDateFormat:REG_SZ=%"
+	set "dateSeparator=%dateSeparator:REG_SZ=%"
+	for /f "tokens=* delims= " %%C in ("!shortDateFormat!") do set "shortDateFormat=%%C"
+	for /f "tokens=* delims= " %%C in ("!dateSeparator!") do set "dateSeparator=%%C"
+
+	:: Build the Date Stem, replacing patterns with single letters: 'yyyy'/'yy' -> Y, 'MM' -> M, 'dd' -> D
+	set "dateStem=!shortDateFormat!"
+	set "dateStem=!dateStem:yyyy=Y!"
+	set "dateStem=!dateStem:YYYY=Y!"
+	set "dateStem=!dateStem:yy=Y!"
+	set "dateStem=!dateStem:YY=Y!"
+	set "dateStem=!dateStem:mm=M!"
+	set "dateStem=!dateStem:MM=M!"
+	set "dateStem=!dateStem:dd=D!"
+	set "dateStem=!dateStem:DD=D!"
+	:: Remove any occurrences of the separator and common delimiters
+	set "dateStem=!dateStem:%dateSeparator%=!"
+	set "dateStem=!dateStem:/=!"
+	set "dateStem=!dateStem:-=!"
+	set "dateStem=!dateStem:.=!"
+
+	:: Prepare the Date Core from %DATE%, stripping any weekday prefix
+	set "dateCore=%DATE%"
+	if not "%DATE%"=="%DATE: =%" (
+		for /f "tokens=1,* delims= " %%X in ("%DATE%") do (
+			set "dummy=%%X"
+			set "dateCore=%%Y"
+		)
+	)
+
+	:: Split Date Core into Parts
+	for /f "tokens=1-3 delims=%dateSeparator%" %%A in ("%dateCore%") do (
+		set "part1=%%A"
+		set "part2=%%B"
+		set "part3=%%C"
+	)
+
+	:: Map Tokens to Year, Month, Day Using the Date Stem
+	set "order=!dateStem:~0,3!"
+
+	:: Initialize date variables
+	set "year="
+	set "month="
+	set "day="
+
+	:: Map token 1
+	if /i "!order:~0,1!"=="Y" (set "year=!part1!")
+	if /i "!order:~0,1!"=="M" (set "month=!part1!")
+	if /i "!order:~0,1!"=="D" (set "day=!part1!")
+
+	:: Map token 2
+	if /i "!order:~1,1!"=="Y" (set "year=!part2!")
+	if /i "!order:~1,1!"=="M" (set "month=!part2!")
+	if /i "!order:~1,1!"=="D" (set "day=!part2!")
+
+	:: Map token 3
+	if /i "!order:~2,1!"=="Y" (set "year=!part3!")
+	if /i "!order:~2,1!"=="M" (set "month=!part3!")
+	if /i "!order:~2,1!"=="D" (set "day=!part3!")
+
+	:: Convert to numbers to remove any existing leading zeros, then pad to two digits if needed
+	set /a m=month
+	if %m% LSS 10 (
+		set "month=0%m%"
+	) else (
+		set "month=%m%"
+	)
+
+	set /a d=day
+	if %d% LSS 10 (
+		set "day=0%d%"
+	) else (
+		set "day=%d%"
+	)
+
+	:: End the local block and return results in global variables
+	endlocal & (
+		set "YEAR=%year%"
+		set "MONTH=%month%"
+		set "DAY=%day%"
+	)
+
+goto :eof
+
+:: ========== ========== ========== ========== ==========
+
 :menu
 
 :: Check if the scheduled task exists
@@ -294,23 +393,6 @@ if "%taskExists%"=="true" (
 	goto task_check
 )
 
-:: Detect date format by checking the position of the year
-for /f "tokens=1-3 delims=/- " %%A in ("%DATE%") do (
-	if %%A GTR 31 (
-		set yyyy=%%A
-		set mm=%%B
-		set dd=%%C
-	) else if %%C GTR 31 (
-		set yyyy=%%C
-		set mm=%%A
-		set dd=%%B
-	) else (
-		set yyyy=20%%C
-		set mm=%%A
-		set dd=%%B
-	)
-)
-
 :: Get time components
 set hh=%TIME:~0,2%
 set min=%TIME:~3,2%
@@ -322,8 +404,11 @@ set hh=!hh: =!
 if !hh! LSS 10 set hh=0!hh!
 endlocal & set hh=%hh%
 
+:: Parse the date string by reading the language settings
+call :parse_system_date
+
 :: Format the date-time as YYYY-MM-DDTHH:mm:ss
-set formattedDate=%yyyy%-%mm%-%dd%T%hh%:%min%:%ss%
+set formattedDate=%YEAR%-%MONTH%-%DAY%T%hh%:%min%:%ss%
 
 :: Add the scheduled task using XML
 echo Adding the scheduled task...
@@ -362,7 +447,7 @@ REM Create temporary XML file
 	echo         ^<Interval^>PT1H^</Interval^>
 	echo         ^<StopAtDurationEnd^>false^</StopAtDurationEnd^>
 	echo       ^</Repetition^>
-	echo       ^<StartBoundary^>%yyyy%-%mm%-%dd%T00:00:00^</StartBoundary^>
+	echo       ^<StartBoundary^>%YEAR%-%MONTH%-%DAY%T00:00:00^</StartBoundary^>
 	echo       ^<Enabled^>true^</Enabled^>
 	echo       ^<ScheduleByDay^>
 	echo         ^<DaysInterval^>1^</DaysInterval^>
