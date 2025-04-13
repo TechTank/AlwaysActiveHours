@@ -213,25 +213,28 @@ goto :eof
 
 	:: Preserve original value
 	set "value=!month!"
+	set "invalidMonth=0"
 
 	:: Try arithmetic eval, will fail if not numeric
 	2>nul set /a _testNum=value+0
 	if errorlevel 1 (
-		set "month=1"
+		set "invalidMonth=1"
 	) else (
 		:: Ensure fully numeric by comparing lengths
 		set "checkNum=!_testNum!"
 		if not "!value!"=="!checkNum!" (
-			set "month=1"
+			set "invalidMonth=1"
 		)
 	)
 
 	:: Convert to numbers to remove any existing leading zeros, then pad to two digits if needed
 	set /a m=month
-	if %m% LSS 10 (
-		set "month=0%m%"
-	) else (
-		set "month=%m%"
+	if not "!invalidMonth!"=="1" (
+		if %m% LSS 10 (
+			set "month=0%m%"
+		) else (
+			set "month=%m%"
+		)
 	)
 
 	set /a d=day
@@ -246,6 +249,7 @@ goto :eof
 		set "YEAR=%year%"
 		set "MONTH=%month%"
 		set "DAY=%day%"
+		set "INVALID_MONTH=%invalidMonth%"
 	)
 
 goto :eof
@@ -448,6 +452,9 @@ endlocal & set hh=%hh%
 
 :: Parse the date string by reading the language settings
 call :parse_system_date
+if "%INVALID_MONTH%"=="1" (
+	set "MONTH=01"
+)
 
 :: Format the date-time as YYYY-MM-DDTHH:mm:ss
 set formattedDate=%YEAR%-%MONTH%-%DAY%T%hh%:%min%:%ss%
