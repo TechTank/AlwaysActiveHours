@@ -4,7 +4,7 @@ REM Filename: Always Active Hours.bat
 REM Written by: Brogan Scott Houston McIntyre
 
 :: Set column and row dimensions
-mode con: cols=55 lines=30
+mode con: cols=55 lines=28
 
 :: Set code page to UTF-8
 CHCP 65001 >nul
@@ -66,7 +66,47 @@ set "targetDir=%ProgramData%\AlwaysActiveHours"
 set "xmlPath=%temp%\AlwaysActiveHours.xml"
 set "taskErrorLog=%temp%\schtasks_error.log"
 
+set "dashLine=-------------------------------------------------------"
+
 goto menu
+
+:: ========== ========== ========== ========== ==========
+
+:title
+
+cls
+setlocal EnableDelayedExpansion
+set "input=%~1"
+
+:: Trim spaces
+for /f "tokens=* delims= " %%A in ("%input%") do set "msg=%%A"
+
+:: Truncate to fit box
+set "msg=!msg:~0,51!"
+
+:: Measure length manually
+set "len=0"
+for /l %%i in (0,1,50) do (
+	if not "!msg:~%%i,1!"=="" set /a len+=1
+)
+
+:: Calculate padding
+set /a innerWidth=51
+set /a padLeft=(innerWidth - len) / 2
+set /a padRight=innerWidth - len - padLeft
+
+:: Pad and print
+set "spaces=                                                       "
+set "line=║ !spaces:~0,%padLeft%!%msg%!spaces:~0,%padRight%! ║"
+
+echo ╔═════════════════════════════════════════════════════╗
+echo !line!
+echo ╚═════════════════════════════════════════════════════╝
+echo.
+
+endlocal
+
+goto :eof
 
 :: ========== ========== ========== ========== ==========
 
@@ -113,144 +153,144 @@ goto :eof
 
 :parse_system_date
 
-	setlocal EnableDelayedExpansion
+setlocal EnableDelayedExpansion
 
-	:: Retrieve Regional Date Settings
-	for /f "tokens=2,*" %%A in ('reg query "HKCU\Control Panel\International" /v sShortDate 2^>nul ^| findstr /i "sShortDate"') do (
-		set "shortDateFormat=%%B"
+:: Retrieve Regional Date Settings
+for /f "tokens=2,*" %%A in ('reg query "HKCU\Control Panel\International" /v sShortDate 2^>nul ^| findstr /i "sShortDate"') do (
+	set "shortDateFormat=%%B"
+)
+for /f "tokens=2,*" %%A in ('reg query "HKCU\Control Panel\International" /v sDate 2^>nul ^| findstr /i "sDate"') do (
+	set "dateSeparator=%%B"
+)
+
+:: Remove "REG_SZ" if present, and trim extra spaces
+set "shortDateFormat=%shortDateFormat:REG_SZ=%"
+set "dateSeparator=%dateSeparator:REG_SZ=%"
+for /f "tokens=* delims= " %%C in ("!shortDateFormat!") do set "shortDateFormat=%%C"
+for /f "tokens=* delims= " %%C in ("!dateSeparator!") do set "dateSeparator=%%C"
+
+:: Build the Date Stem, replacing patterns with single letters: 'yyyy'/'yy' -> Y, 'MM' -> M, 'dd' -> D
+set "dateStem=!shortDateFormat!"
+set "dateStem=!dateStem:yyyy=Y!"
+set "dateStem=!dateStem:YYYY=Y!"
+set "dateStem=!dateStem:yy=Y!"
+set "dateStem=!dateStem:YY=Y!"
+set "dateStem=!dateStem:MMMM=M!"
+set "dateStem=!dateStem:MMM=M!"
+set "dateStem=!dateStem:MM=M!"
+set "dateStem=!dateStem:mm=M!"
+set "dateStem=!dateStem:dd=D!"
+set "dateStem=!dateStem:DD=D!"
+:: Remove any occurrences of the separator and common delimiters
+set "dateStem=!dateStem:%dateSeparator%=!"
+set "dateStem=!dateStem:/=!"
+set "dateStem=!dateStem:-=!"
+set "dateStem=!dateStem:.=!"
+
+:: Prepare the Date Core from %DATE%, stripping any weekday prefix
+set "dateCore=%DATE%"
+if not "%DATE%"=="%DATE: =%" (
+	for /f "tokens=1,* delims= " %%X in ("%DATE%") do (
+		set "dummy=%%X"
+		set "dateCore=%%Y"
 	)
-	for /f "tokens=2,*" %%A in ('reg query "HKCU\Control Panel\International" /v sDate 2^>nul ^| findstr /i "sDate"') do (
-		set "dateSeparator=%%B"
-	)
+)
 
-	:: Remove "REG_SZ" if present, and trim extra spaces
-	set "shortDateFormat=%shortDateFormat:REG_SZ=%"
-	set "dateSeparator=%dateSeparator:REG_SZ=%"
-	for /f "tokens=* delims= " %%C in ("!shortDateFormat!") do set "shortDateFormat=%%C"
-	for /f "tokens=* delims= " %%C in ("!dateSeparator!") do set "dateSeparator=%%C"
+:: Split Date Core into Parts
+for /f "tokens=1-3 delims=%dateSeparator%" %%A in ("%dateCore%") do (
+	set "part1=%%A"
+	set "part2=%%B"
+	set "part3=%%C"
+)
 
-	:: Build the Date Stem, replacing patterns with single letters: 'yyyy'/'yy' -> Y, 'MM' -> M, 'dd' -> D
-	set "dateStem=!shortDateFormat!"
-	set "dateStem=!dateStem:yyyy=Y!"
-	set "dateStem=!dateStem:YYYY=Y!"
-	set "dateStem=!dateStem:yy=Y!"
-	set "dateStem=!dateStem:YY=Y!"
-	set "dateStem=!dateStem:MMMM=M!"
-	set "dateStem=!dateStem:MMM=M!"
-	set "dateStem=!dateStem:MM=M!"
-	set "dateStem=!dateStem:mm=M!"
-	set "dateStem=!dateStem:dd=D!"
-	set "dateStem=!dateStem:DD=D!"
-	:: Remove any occurrences of the separator and common delimiters
-	set "dateStem=!dateStem:%dateSeparator%=!"
-	set "dateStem=!dateStem:/=!"
-	set "dateStem=!dateStem:-=!"
-	set "dateStem=!dateStem:.=!"
+:: Map Tokens to Year, Month, Day Using the Date Stem
+set "order=!dateStem:~0,3!"
 
-	:: Prepare the Date Core from %DATE%, stripping any weekday prefix
-	set "dateCore=%DATE%"
-	if not "%DATE%"=="%DATE: =%" (
-		for /f "tokens=1,* delims= " %%X in ("%DATE%") do (
-			set "dummy=%%X"
-			set "dateCore=%%Y"
-		)
-	)
+:: Initialize date variables
+set "year="
+set "month="
+set "day="
 
-	:: Split Date Core into Parts
-	for /f "tokens=1-3 delims=%dateSeparator%" %%A in ("%dateCore%") do (
-		set "part1=%%A"
-		set "part2=%%B"
-		set "part3=%%C"
-	)
+:: Map token 1
+if /i "!order:~0,1!"=="Y" (set "year=!part1!")
+if /i "!order:~0,1!"=="M" (set "month=!part1!")
+if /i "!order:~0,1!"=="D" (set "day=!part1!")
 
-	:: Map Tokens to Year, Month, Day Using the Date Stem
-	set "order=!dateStem:~0,3!"
+:: Map token 2
+if /i "!order:~1,1!"=="Y" (set "year=!part2!")
+if /i "!order:~1,1!"=="M" (set "month=!part2!")
+if /i "!order:~1,1!"=="D" (set "day=!part2!")
 
-	:: Initialize date variables
-	set "year="
-	set "month="
-	set "day="
+:: Map token 3
+if /i "!order:~2,1!"=="Y" (set "year=!part3!")
+if /i "!order:~2,1!"=="M" (set "month=!part3!")
+if /i "!order:~2,1!"=="D" (set "day=!part3!")
 
-	:: Map token 1
-	if /i "!order:~0,1!"=="Y" (set "year=!part1!")
-	if /i "!order:~0,1!"=="M" (set "month=!part1!")
-	if /i "!order:~0,1!"=="D" (set "day=!part1!")
+:: If the year is 2 digits, prefix it with "20"
+if "!year:~2!"=="" (
+	set "year=20!year!"
+)
 
-	:: Map token 2
-	if /i "!order:~1,1!"=="Y" (set "year=!part2!")
-	if /i "!order:~1,1!"=="M" (set "month=!part2!")
-	if /i "!order:~1,1!"=="D" (set "day=!part2!")
+:: Convert month names to numbers if necessary...
 
-	:: Map token 3
-	if /i "!order:~2,1!"=="Y" (set "year=!part3!")
-	if /i "!order:~2,1!"=="M" (set "month=!part3!")
-	if /i "!order:~2,1!"=="D" (set "day=!part3!")
+:: ~~~~~~~~~~ ~~~~~~~~~~ ~~~~~~~~~~
 
-	:: If the year is 2 digits, prefix it with "20"
-	if "!year:~2!"=="" (
-		set "year=20!year!"
-	)
+:: English
+if /i "!month!"=="Jan" set "month=1"
+if /i "!month!"=="Feb" set "month=2"
+if /i "!month!"=="Mar" set "month=3"
+if /i "!month!"=="Apr" set "month=4"
+if /i "!month!"=="May" set "month=5"
+if /i "!month!"=="Jun" set "month=6"
+if /i "!month!"=="Jul" set "month=7"
+if /i "!month!"=="Aug" set "month=8"
+if /i "!month!"=="Sep" set "month=9"
+if /i "!month!"=="Oct" set "month=10"
+if /i "!month!"=="Nov" set "month=11"
+if /i "!month!"=="Dec" set "month=12"
 
-	:: Convert month names to numbers if necessary...
+:: ~~~~~~~~~~ ~~~~~~~~~~ ~~~~~~~~~~
 
-	:: ~~~~~~~~~~ ~~~~~~~~~~ ~~~~~~~~~~
+:: Preserve original value
+set "value=!month!"
+set "invalidMonth=0"
 
-	:: English
-	if /i "!month!"=="Jan" set "month=1"
-	if /i "!month!"=="Feb" set "month=2"
-	if /i "!month!"=="Mar" set "month=3"
-	if /i "!month!"=="Apr" set "month=4"
-	if /i "!month!"=="May" set "month=5"
-	if /i "!month!"=="Jun" set "month=6"
-	if /i "!month!"=="Jul" set "month=7"
-	if /i "!month!"=="Aug" set "month=8"
-	if /i "!month!"=="Sep" set "month=9"
-	if /i "!month!"=="Oct" set "month=10"
-	if /i "!month!"=="Nov" set "month=11"
-	if /i "!month!"=="Dec" set "month=12"
-
-	:: ~~~~~~~~~~ ~~~~~~~~~~ ~~~~~~~~~~
-
-	:: Preserve original value
-	set "value=!month!"
-	set "invalidMonth=0"
-
-	:: Try arithmetic eval, will fail if not numeric
-	2>nul set /a _testNum=value+0
-	if errorlevel 1 (
+:: Try arithmetic eval, will fail if not numeric
+2>nul set /a _testNum=value+0
+if errorlevel 1 (
+	set "invalidMonth=1"
+) else (
+	:: Ensure fully numeric by comparing lengths
+	set "checkNum=!_testNum!"
+	if not "!value!"=="!checkNum!" (
 		set "invalidMonth=1"
+	)
+)
+
+:: Convert to numbers to remove any existing leading zeros, then pad to two digits if needed
+set /a m=month
+if not "!invalidMonth!"=="1" (
+	if %m% LSS 10 (
+		set "month=0%m%"
 	) else (
-		:: Ensure fully numeric by comparing lengths
-		set "checkNum=!_testNum!"
-		if not "!value!"=="!checkNum!" (
-			set "invalidMonth=1"
-		)
+		set "month=%m%"
 	)
+)
 
-	:: Convert to numbers to remove any existing leading zeros, then pad to two digits if needed
-	set /a m=month
-	if not "!invalidMonth!"=="1" (
-		if %m% LSS 10 (
-			set "month=0%m%"
-		) else (
-			set "month=%m%"
-		)
-	)
+set /a d=day
+if %d% LSS 10 (
+	set "day=0%d%"
+) else (
+	set "day=%d%"
+)
 
-	set /a d=day
-	if %d% LSS 10 (
-		set "day=0%d%"
-	) else (
-		set "day=%d%"
-	)
-
-	:: End the local block and return results in global variables
-	endlocal & (
-		set "YEAR=%year%"
-		set "MONTH=%month%"
-		set "DAY=%day%"
-		set "INVALID_MONTH=%invalidMonth%"
-	)
+:: End the local block and return results in global variables
+endlocal & (
+	set "YEAR=%year%"
+	set "MONTH=%month%"
+	set "DAY=%day%"
+	set "INVALID_MONTH=%invalidMonth%"
+)
 
 goto :eof
 
@@ -274,7 +314,7 @@ for /f "tokens=3" %%A in ('reg query "HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Wind
 call :convert_to_ampm %activeStart% activeStartDisplay
 call :convert_to_ampm %activeEnd% activeEndDisplay
 
-:: Fetch No Auto Reboot configuration
+:: Fetch No Auto Reboot settings
 reg query "HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU" /v NoAutoRebootWithLoggedOnUsers >nul 2>&1
 if %errorlevel% equ 0 (
 	set noRebootPolicy=true
@@ -293,11 +333,7 @@ call :get_active_hours_range
 set "choice="
 
 :: Display the menu
-cls
-echo ╔═════════════════════════════════════════════════════╗
-echo ║          Always Active Hours Configurator           ║
-echo ╚═════════════════════════════════════════════════════╝
-echo.
+call :title "Always Active Hours Configurator"
 
 if defined activeStartDisplay if defined activeEndDisplay (
 	call :display_active_hours %activeStart% %activeEnd%
@@ -320,7 +356,7 @@ if not "%activeHoursMaxRangeDec%"=="18" (
 )
 
 echo.
-echo -------------------------------------------------------
+echo %dashLine%
 echo.
 if "%taskExists%"=="true" (
 	echo   1. Disable Scheduled Task
@@ -337,7 +373,7 @@ echo   4. Delay Aggressive Updates
 echo   5. Refresh
 echo   6. Exit
 echo.
-echo -------------------------------------------------------
+echo %dashLine%
 echo.
 set /p "choice=  Enter your choice (1-6): "
 
@@ -423,9 +459,8 @@ goto :eof
 
 :toggle_task
 
-echo.
-echo .......................................................
-echo.
+:: Display the Title
+call :title "Scheduled Task Settings"
 
 if "%taskExists%"=="true" (
 	:: Remove the scheduled task
@@ -460,7 +495,7 @@ if "%INVALID_MONTH%"=="1" (
 set formattedDate=%YEAR%-%MONTH%-%DAY%T%hh%:%min%:%ss%
 
 :: Add the scheduled task using XML
-echo Adding the scheduled task...
+echo Creating the scheduled task...
 
 call :install
 
@@ -469,7 +504,7 @@ reg add "HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings" /v Sma
 if %errorlevel% neq 0 (
 	echo Error: Failed to set SmartActiveHoursState to 0.
 	echo.
-	echo -------------------------------------------------------
+	echo %dashLine%
 	echo.
 	pause
 	goto menu
@@ -543,7 +578,7 @@ if not exist "%xmlPath%" (
 	echo XML file "%xmlPath%" does not exist.
 	echo Unable to create the scheduled task without the XML configuration.
 	echo.
-	echo -------------------------------------------------------
+	echo %dashLine%
 	echo.
 	pause
 	goto menu
@@ -561,36 +596,38 @@ set "taskAction=create"
 goto task_check
 :task_check
 
-	:: Check if the task action was sucessful or not
-	schtasks /query /tn "%taskName%" >nul 2>&1
-	if "%taskAction%"=="remove" (
-		if %errorlevel% equ 0 (
-			echo Error: Failed to remove the scheduled task.
-		) else (
-			echo Scheduled task removed successfully.
-		)
+echo.
+echo %dashLine%
+echo.
+
+:: Check if the task action was sucessful or not
+schtasks /query /tn "%taskName%" >nul 2>&1
+if "%taskAction%"=="remove" (
+	if %errorlevel% equ 0 (
+		echo Error: Failed to remove the scheduled task.
 	) else (
-		if %errorlevel% equ 0 (
-			echo Scheduled task created successfully.
-		) else (
-			echo Error: Failed to create the scheduled task.
-			if exist "%taskErrorLog%" (
-				echo.
-				echo                      ERROR DETAILS
-				echo =======================================================
-				for /f "tokens=*" %%A in (%taskErrorLog%) do (
-					set "line=%%A"
-					setlocal enabledelayedexpansion
-					set "line=!line:ERROR: =!"
-					echo !line!
-					endlocal
-				)
+		echo Scheduled task removed successfully.
+	)
+) else (
+	if %errorlevel% equ 0 (
+		echo Scheduled task created successfully.
+	) else (
+		echo Error: Failed to create the scheduled task.
+		if exist "%taskErrorLog%" (
+			echo.
+			echo                      ERROR DETAILS
+			echo =======================================================
+			for /f "tokens=*" %%A in (%taskErrorLog%) do (
+				set "line=%%A"
+				setlocal enabledelayedexpansion
+				set "line=!line:ERROR: =!"
+				echo !line!
+				endlocal
 			)
 		)
 	)
+)
 
-echo.
-echo -------------------------------------------------------
 echo.
 pause
 goto menu
@@ -638,17 +675,20 @@ goto :eof
 
 :toggle_no_reboot
 
-echo.
-echo .......................................................
-echo.
+:: Display the Title
+call :title "No Reboot Policy Settings"
 
 if "%noRebootPolicy%"=="true" (
 	:: Disable No Auto Reboot Policy
-	echo Attempting to delete No Auto Reboot policy...
+	echo Removing No Auto Reboot policy...
 	reg delete "HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU" /v NoAutoRebootWithLoggedOnUsers /f >nul 2>&1
 
 	set "result="
 	for /f "tokens=*" %%A in ('reg query "HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU" /v NoAutoRebootWithLoggedOnUsers 2^>nul') do set "result=%%A"
+
+	echo.
+	echo %dashLine%
+	echo.
 
 	if not defined result (
 		echo No Auto Reboot policy has been disabled successfully.
@@ -657,11 +697,15 @@ if "%noRebootPolicy%"=="true" (
 	)
 ) else (
 	:: Enable No Auto Reboot Policy
-	echo Attempting to add No Auto Reboot policy...
+	echo Adding No Auto Reboot policy...
 	reg add "HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU" /v NoAutoRebootWithLoggedOnUsers /t REG_DWORD /d 1 /f >nul 2>&1
 
 	set "result="
 	for /f "tokens=*" %%A in ('reg query "HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU" /v NoAutoRebootWithLoggedOnUsers 2^>nul') do set "result=%%A"
+
+	echo.
+	echo %dashLine%
+	echo.
 
 	if defined result (
 		echo No Auto Reboot policy has been enabled successfully.
@@ -671,8 +715,6 @@ if "%noRebootPolicy%"=="true" (
 )
 
 echo.
-echo -------------------------------------------------------
-echo.
 pause
 goto menu
 
@@ -680,11 +722,10 @@ goto menu
 
 :shift_hours
 
-echo.
-echo .......................................................
-echo.
+:: Display the Title
+call :title "Shift Active Hours"
 
-:: Calculate and shift active hours
+echo Shifting active hours...
 
 :: Get current hour using WMIC (24-hour format)
 for /F "tokens=2 delims==" %%H in ('wmic path win32_localtime get hour /value') do set currentHour=%%H
@@ -746,7 +787,7 @@ call :convert_to_ampm %startHour% newStartDisplay
 call :convert_to_ampm %endHour% newEndDisplay
 
 echo.
-echo -------------------------------------------------------
+echo %dashLine%
 echo.
 
 :: Display updated active hours
@@ -823,12 +864,8 @@ for /f "tokens=3" %%A in ('reg query "HKLM\SOFTWARE\Policies\Microsoft\Windows\W
 :: Reset choice variable
 set "choice="
 
-:: Display the menu
-cls
-echo ╔═════════════════════════════════════════════════════╗
-echo ║              Delay Aggressive Updates               ║
-echo ╚═════════════════════════════════════════════════════╝
-echo.
+:: Display the title
+call :title "Delay Aggressive Updates"
 
 if "%complianceDeadline%"=="1" (
 	echo         Aggressive update deadlines are ENABLED
@@ -942,26 +979,33 @@ if "%complianceDeadline%"=="1" (
 )
 
 echo.
-echo -------------------------------------------------------
+echo %dashLine%
 echo.
 echo   1. Automatically Set Max Delays
 echo   2. Manually Configure Delays
 echo   3. Remove All Delay Settings
-echo   4. Return To Main Menu
+echo   4. Refresh
+echo   5. Return To Main Menu
 echo.
-echo -------------------------------------------------------
+echo %dashLine%
 echo.
-set /p "choice=  Enter your choice (1-4): "
+set /p "choice=  Enter your choice (1-5): "
 
 if "%choice%" == "1" goto set_max_delays
 if "%choice%" == "2" goto manual_delay_config
 if "%choice%" == "3" goto clear_delays
-if "%choice%" == "4" goto menu
+if "%choice%" == "4" goto delay_updates
+if "%choice%" == "5" goto menu
 goto delay_updates
 
 :: ========== ========== ========== ========== ==========
 
 :set_max_delays
+
+:: Display the title
+call :title "Automatic Aggressive Update Settings"
+
+echo Setting aggressive update delays to maximum...
 
 reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v SetComplianceDeadline /t REG_DWORD /d 1 /f >nul
 reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v ConfigureDeadlineForFeatureUpdates /t REG_DWORD /d 30 /f >nul
@@ -970,7 +1014,7 @@ reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v ConfigureDea
 reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v ConfigureDeadlineNoAutoReboot /t REG_DWORD /d 1 /f >nul
 
 echo.
-echo -------------------------------------------------------
+echo %dashLine%
 echo.
 
 echo Aggressive update delays have been set to maximum.
@@ -983,13 +1027,13 @@ goto delay_updates
 
 :manual_delay_config
 
-cls
-echo ╔═════════════════════════════════════════════════════╗
-echo ║           Manual Aggressive Update Settings         ║
-echo ╚═════════════════════════════════════════════════════╝
-echo.
-echo Press Enter to skip any setting and leave it unchanged.
-echo.
+:: Display the title
+call :title "Manual Aggressive Update Settings"
+
+if not defined noRebootFlag (
+	echo Press Enter to skip any setting and leave it unchanged.
+	echo.
+)
 
 :: ~~~~~~~~~~
 
@@ -1266,7 +1310,7 @@ goto skip_compliance
 reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v SetComplianceDeadline /t REG_DWORD /d 1 /f >nul
 :skip_compliance
 
-:: Write the configuration to the registry
+:: Write the settings to the registry
 if defined featureDays (
 	reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v ConfigureDeadlineForFeatureUpdates /t REG_DWORD /d %featureDays% /f >nul
 	set featureDays=
@@ -1285,7 +1329,7 @@ if defined noRebootFlag (
 )
 
 echo.
-echo -------------------------------------------------------
+echo %dashLine%
 echo.
 
 echo Aggressive update delays have been set.
@@ -1299,12 +1343,17 @@ goto delay_updates
 
 :clear_delays
 
+:: Display the title
+call :title "Clear Aggressive Update Settings"
+
+echo Clearing agressive update settings...
+
 for %%V in (SetComplianceDeadline ConfigureDeadlineForFeatureUpdates ConfigureDeadlineForQualityUpdates ConfigureDeadlineGracePeriod ConfigureDeadlineNoAutoReboot) do (
 	reg delete "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v %%V /f >nul 2>&1
 )
 
 echo.
-echo -------------------------------------------------------
+echo %dashLine%
 echo.
 
 echo All aggressive update delay settings have been removed.
