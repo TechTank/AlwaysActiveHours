@@ -471,7 +471,6 @@ if %end% LSS %start% (
 ) else (
 	set /a normalized_end=%end%
 )
-call :parse_system_time
 
 :: Generate the bar and arrow lines
 for /l %%H in (0,1,23) do (
