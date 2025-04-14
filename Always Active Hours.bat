@@ -478,7 +478,7 @@ for /l %%H in (0,1,23) do (
 	set /a normalized_hour=h
 	if !h! LSS %start% set /a normalized_hour=h+24
 
-	if %%H EQU %HOUR% (
+	if %%H EQU !HOUR! (
 		if !normalized_hour! GEQ %start% if !normalized_hour! LSS %normalized_end% (
 			set "block=█" :: Active current hour
 		) else (
@@ -697,13 +697,66 @@ if /I "%~dp0"=="%targetDir%\" (
 	)
 )
 
+:: Set the destination path
+set "filePath=%targetDir%\Always Active Hours.bat"
+
 :: Create target directory if it doesn't exist
 if not exist "%targetDir%" (
 	mkdir "%targetDir%"
 )
 
+set "forceAdmin=0"
+set "forceAll=0"
+
+:: If the file already exists, delete it
+if exist "%filePath%" (
+	del /F /Q "%filePath%"
+	if exist "%filePath%" (
+		:: Grant administrator group permissions to the target directory
+		echo Applying Administrator Group privileges...
+		icacls "%targetDir%" /grant:r "*S-1-5-32-544":(^OI^)(^CI^)(^F^) >nul
+		set "forceAdmin=1"
+		del /F /Q "%filePath%"
+		if exist "%filePath%" (
+			:: Grant ALL APPLICATION PACKAGES full control to the target directory
+			echo Applying All Application Package privileges...
+			icacls "%targetDir%" /grant:r "*S-1-15-2-1":(^OI^)(^CI^)(^F^) >nul
+			set "forceAll=1"
+			del /F /Q "%filePath%"
+		)
+	)
+)
+
 :: Copy script to ProgramData directory
-xcopy "%scriptPath%" "%targetDir%\Always Active Hours.bat" /Y /-I /Q >nul 2>&1
+xcopy "%scriptPath%" "%filePath%" /Y /-I /Q >nul 2>&1
+
+:: Check if file doesn't exist, if it doesn't try after granting permissions to administrators group
+if not exist "%filePath%" (
+	:: Grant administrator group permissions to the target directory
+	if "%forceAdmin%" == "0" (
+		echo Applying Administrator Group privileges...
+		icacls "%targetDir%" /grant:r "*S-1-5-32-544":(^OI^)(^CI^)(^F^) >nul
+		set "forceAdmin=1"
+		xcopy "%scriptPath%" "%filePath%" /Y /-I /Q >nul 2>&1
+	)
+)
+
+:: Check if file doesn't exist, if it doesn't try after granting permissions to administrators group
+if not exist "%filePath%" (
+	:: Grant ALL APPLICATION PACKAGES full control to the target directory
+	if not "%forceAll%" == "1" (
+		echo Applying All Application Package privileges...
+		icacls "%targetDir%" /grant:r "*S-1-15-2-1":(^OI^)(^CI^)(^F^) >nul
+		set "forceAll=1"
+		xcopy "%scriptPath%" "%filePath%" /Y /-I /Q >nul 2>&1
+	)
+)
+
+if not "%forceAll%" == "0" (
+	echo Removing All Application Package privileges...
+	:: Remove the ALL APPLICATION PACKAGES permission as it was only intended for the copy operation
+	icacls "%targetDir%" /remove "*S-1-15-2-1" >nul
+)
 
 goto :eof
 
@@ -711,9 +764,24 @@ goto :eof
 
 :uninstall
 
-:: Delete the script file if it exists in the target directory
-if exist "%targetDir%\Always Active Hours.bat" (
-	del "%targetDir%\Always Active Hours.bat" /F /Q
+:: Set the target path
+set "filePath=%targetDir%\Always Active Hours.bat"
+
+:: If the file exists, delete it
+if exist "%filePath%" (
+	del /F /Q "%filePath%"
+	if exist "%filePath%" (
+		:: Grant administrator group permissions to the target directory
+		echo Applying Administrator Group privileges...
+		icacls "%targetDir%" /grant:r "*S-1-5-32-544":(^OI^)(^CI^)(^F^) >nul
+		del /F /Q "%filePath%"
+		if exist "%filePath%" (
+			:: Grant ALL APPLICATION PACKAGES full control to the target directory
+			echo Applying All Application Package privileges...
+			icacls "%targetDir%" /grant:r "*S-1-15-2-1":(^OI^)(^CI^)(^F^) >nul
+			del /F /Q "%filePath%"
+		)
+	)
 )
 
 :: Check if the directory is empty
