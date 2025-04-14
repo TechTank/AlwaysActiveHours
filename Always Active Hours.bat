@@ -767,6 +767,8 @@ goto :eof
 :: Set the target path
 set "filePath=%targetDir%\Always Active Hours.bat"
 
+set "forceAll=0"
+
 :: If the file exists, delete it
 if exist "%filePath%" (
 	del /F /Q "%filePath%"
@@ -779,6 +781,7 @@ if exist "%filePath%" (
 			:: Grant ALL APPLICATION PACKAGES full control to the target directory
 			echo Applying All Application Package privileges...
 			icacls "%targetDir%" /grant:r "*S-1-15-2-1":(^OI^)(^CI^)(^F^) >nul
+			set "forceAll=1"
 			del /F /Q "%filePath%"
 		)
 	)
@@ -789,6 +792,12 @@ dir /b "%targetDir%" | findstr . >nul
 if errorlevel 1 (
 	:: Directory is empty; attempt to remove it
 	rd "%targetDir%"
+) else (
+	if "%forceAll" == "1" (
+		echo Removing All Application Package privileges...
+		:: Remove the ALL APPLICATION PACKAGES permission as it was only intended for the removal operation
+		icacls "%targetDir%" /remove "*S-1-15-2-1" >nul
+	)
 )
 
 goto :eof
