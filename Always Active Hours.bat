@@ -548,10 +548,9 @@ if "%INVALID_MONTH%"=="1" (
 :: Format the date-time as YYYY-MM-DDTHH:mm:ss
 set formattedDate=%YEAR%-%MONTH%-%DAY%T%hh%:%mm%:%ss%
 
-:: Add the scheduled task using XML
-echo Creating the scheduled task...
-
 call :install
+
+echo Enabling active hours...
 
 :: Ensure SmartActiveHoursState is set to 0
 reg add "HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings" /v SmartActiveHoursState /t REG_DWORD /d 0 /f >nul
@@ -563,6 +562,8 @@ if %errorlevel% neq 0 (
 	pause
 	goto menu
 )
+
+echo Creating the scheduled task...
 
 REM Create temporary XML file
 (
@@ -690,9 +691,11 @@ goto menu
 
 :install
 
+echo Preparing installation:
 :: Check if already installed in target location
 if /I "%~dp0"=="%targetDir%\" (
 	if /I "%~nx0"=="Always Active Hours.bat" (
+		echo Already installed.
 		goto :eof
 	)
 )
@@ -706,36 +709,39 @@ set "forceAll=0"
 
 :: Create target directory if it doesn't exist and set SYSTEM as owner with full control
 if not exist "%targetDir%" (
+	echo Creating the installation directory...
 	mkdir "%targetDir%"
 	icacls "%targetDir%" /setowner "*S-1-5-18" /c /q >nul
-	icacls "%targetDir%" /grant "*S-1-5-18:(OI)(CI)(F)" /t /c /q >nul
-)
-
-:: Delete existing file; if deletion fails, apply fallback permissions and try again
-if exist "%filePath%" (
-	del /F /Q "%filePath%"
+	icacls "%targetDir%" /grant "*S-1-5-18":(^OI^)(^CI^)^F /t /c /q >nul
+) else (
+	:: Delete existing file; if deletion fails, apply fallback permissions and try again
 	if exist "%filePath%" (
-		echo Applying Administrator Group privileges...
-		icacls "%targetDir%" /grant:r "*S-1-5-32-544":(^OI^)(^CI^)(^F^) >nul
-		set "forceAdmin=1"
+		echo Deleting the old installation...
 		del /F /Q "%filePath%"
 		if exist "%filePath%" (
-			echo Applying All Users privileges...
-			icacls "%targetDir%" /grant:r "*S-1-5-32-545":(^OI^)(^CI^)(^F^) >nul
-			set "forceAll=1"
+			echo Applying Administrator Group privileges...
+			icacls "%targetDir%" /grant:r "*S-1-5-32-544":(^OI^)(^CI^)^F >nul
+			set "forceAdmin=1"
 			del /F /Q "%filePath%"
+			if exist "%filePath%" (
+				echo Applying All Users privileges...
+				icacls "%targetDir%" /grant:r "*S-1-5-32-545":(^OI^)(^CI^)^F >nul
+				set "forceAll=1"
+				del /F /Q "%filePath%"
+			)
 		)
 	)
 )
 
 :: Copy the script to the target directory
+echo Copying batch file to the installation directory...
 xcopy "%scriptPath%" "%filePath%" /Y /-I /Q >nul 2>&1
 
 :: If the copy failed, try applying Administrator privileges and copy again
 if not exist "%filePath%" (
 	if "%forceAdmin%" == "0" (
 		echo Applying Administrator Group privileges...
-		icacls "%targetDir%" /grant:r "*S-1-5-32-544":(^OI^)(^CI^)(^F^) >nul
+		icacls "%targetDir%" /grant:r "*S-1-5-32-544":(^OI^)(^CI^)^F >nul
 		set "forceAdmin=1"
 		xcopy "%scriptPath%" "%filePath%" /Y /-I /Q >nul 2>&1
 	)
@@ -745,7 +751,7 @@ if not exist "%filePath%" (
 if not exist "%filePath%" (
 	if "%forceAll%" == "0" (
 		echo Applying All Users privileges...
-		icacls "%targetDir%" /grant:r "*S-1-5-32-545":(^OI^)(^CI^)(^F^) >nul
+		icacls "%targetDir%" /grant:r "*S-1-5-32-545":(^OI^)(^CI^)^F >nul
 		set "forceAll=1"
 		xcopy "%scriptPath%" "%filePath%" /Y /-I /Q >nul 2>&1
 	)
@@ -776,15 +782,17 @@ set "forceAll=0"
 
 :: Delete the file; if deletion fails, apply fallback permissions and try again
 if exist "%filePath%" (
+	echo Deleting the batch file...
+
 	del /F /Q "%filePath%"
 	if exist "%filePath%" (
 		echo Applying Administrator Group privileges...
-		icacls "%targetDir%" /grant:r "*S-1-5-32-544":(^OI^)(^CI^)(^F^) >nul
+		icacls "%targetDir%" /grant:r "*S-1-5-32-544":(^OI^)(^CI^)^F >nul
 		set "forceAdmin=1"
 		del /F /Q "%filePath%"
 		if exist "%filePath%" (
 			echo Applying All Users privileges...
-			icacls "%targetDir%" /grant:r "*S-1-5-32-545":(^OI^)(^CI^)(^F^) >nul
+			icacls "%targetDir%" /grant:r "*S-1-5-32-545":(^OI^)(^CI^)^F >nul
 			set "forceAll=1"
 			del /F /Q "%filePath%"
 		)
@@ -794,13 +802,14 @@ if exist "%filePath%" (
 :: If the directory is empty, remove it; otherwise, clean up fallback privileges
 dir /b "%targetDir%" | findstr . >nul
 if errorlevel 1 (
+	echo Removing the installation directory...
 	rd "%targetDir%"
 ) else (
-	if "%forceAll" == "1" (
+	if "%forceAll%" == "1" (
 		echo Removing All Users privileges...
 		icacls "%targetDir%" /remove "*S-1-5-32-545" >nul
 	)
-	if "%forceAdmin" == "1" (
+	if "%forceAdmin%" == "1" (
 		echo Removing Administrator Group privileges...
 		icacls "%targetDir%" /remove "*S-1-5-32-544" >nul
 	)
