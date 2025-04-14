@@ -697,42 +697,42 @@ if /I "%~dp0"=="%targetDir%\" (
 	)
 )
 
-:: Set the destination path
+:: Define the destination file path
 set "filePath=%targetDir%\Always Active Hours.bat"
 
-:: Create target directory if it doesn't exist
-if not exist "%targetDir%" (
-	mkdir "%targetDir%"
-)
-
+:: Prepare the state variables
 set "forceAdmin=0"
 set "forceAll=0"
 
-:: If the file already exists, delete it
+:: Create target directory if it doesn't exist and set SYSTEM as owner with full control
+if not exist "%targetDir%" (
+	mkdir "%targetDir%"
+	icacls "%targetDir%" /setowner "*S-1-5-18" /c /q >nul
+	icacls "%targetDir%" /grant "*S-1-5-18:(OI)(CI)(F)" /t /c /q >nul
+)
+
+:: Delete existing file; if deletion fails, apply fallback permissions and try again
 if exist "%filePath%" (
 	del /F /Q "%filePath%"
 	if exist "%filePath%" (
-		:: Grant administrator group permissions to the target directory
 		echo Applying Administrator Group privileges...
 		icacls "%targetDir%" /grant:r "*S-1-5-32-544":(^OI^)(^CI^)(^F^) >nul
 		set "forceAdmin=1"
 		del /F /Q "%filePath%"
 		if exist "%filePath%" (
-			:: Grant ALL APPLICATION PACKAGES full control to the target directory
-			echo Applying All Application Package privileges...
-			icacls "%targetDir%" /grant:r "*S-1-15-2-1":(^OI^)(^CI^)(^F^) >nul
+			echo Applying All Users privileges...
+			icacls "%targetDir%" /grant:r "*S-1-5-32-545":(^OI^)(^CI^)(^F^) >nul
 			set "forceAll=1"
 			del /F /Q "%filePath%"
 		)
 	)
 )
 
-:: Copy script to ProgramData directory
+:: Copy the script to the target directory
 xcopy "%scriptPath%" "%filePath%" /Y /-I /Q >nul 2>&1
 
-:: Check if file doesn't exist, if it doesn't try after granting permissions to administrators group
+:: If the copy failed, try applying Administrator privileges and copy again
 if not exist "%filePath%" (
-	:: Grant administrator group permissions to the target directory
 	if "%forceAdmin%" == "0" (
 		echo Applying Administrator Group privileges...
 		icacls "%targetDir%" /grant:r "*S-1-5-32-544":(^OI^)(^CI^)(^F^) >nul
@@ -741,21 +741,24 @@ if not exist "%filePath%" (
 	)
 )
 
-:: Check if file doesn't exist, if it doesn't try after granting permissions to administrators group
+:: If still unsuccessful, try applying All Users privileges and copy again
 if not exist "%filePath%" (
-	:: Grant ALL APPLICATION PACKAGES full control to the target directory
-	if not "%forceAll%" == "1" (
-		echo Applying All Application Package privileges...
-		icacls "%targetDir%" /grant:r "*S-1-15-2-1":(^OI^)(^CI^)(^F^) >nul
+	if "%forceAll%" == "0" (
+		echo Applying All Users privileges...
+		icacls "%targetDir%" /grant:r "*S-1-5-32-545":(^OI^)(^CI^)(^F^) >nul
 		set "forceAll=1"
 		xcopy "%scriptPath%" "%filePath%" /Y /-I /Q >nul 2>&1
 	)
 )
 
-if not "%forceAll%" == "0" (
-	echo Removing All Application Package privileges...
-	:: Remove the ALL APPLICATION PACKAGES permission as it was only intended for the copy operation
-	icacls "%targetDir%" /remove "*S-1-15-2-1" >nul
+:: Clean up fallback privileges if they were applied
+if "%forceAll%" == "1" (
+	echo Removing All Users privileges...
+	icacls "%targetDir%" /remove "*S-1-5-32-545" >nul
+)
+if "%forceAdmin%" == "1" (
+	echo Removing Administrator Group privileges...
+	icacls "%targetDir%" /remove "*S-1-5-32-544" >nul
 )
 
 goto :eof
@@ -764,39 +767,42 @@ goto :eof
 
 :uninstall
 
-:: Set the target path
+:: Define the target file path
 set "filePath=%targetDir%\Always Active Hours.bat"
 
+:: Prepare the state variables
+set "forceAdmin=0"
 set "forceAll=0"
 
-:: If the file exists, delete it
+:: Delete the file; if deletion fails, apply fallback permissions and try again
 if exist "%filePath%" (
 	del /F /Q "%filePath%"
 	if exist "%filePath%" (
-		:: Grant administrator group permissions to the target directory
 		echo Applying Administrator Group privileges...
 		icacls "%targetDir%" /grant:r "*S-1-5-32-544":(^OI^)(^CI^)(^F^) >nul
+		set "forceAdmin=1"
 		del /F /Q "%filePath%"
 		if exist "%filePath%" (
-			:: Grant ALL APPLICATION PACKAGES full control to the target directory
-			echo Applying All Application Package privileges...
-			icacls "%targetDir%" /grant:r "*S-1-15-2-1":(^OI^)(^CI^)(^F^) >nul
+			echo Applying All Users privileges...
+			icacls "%targetDir%" /grant:r "*S-1-5-32-545":(^OI^)(^CI^)(^F^) >nul
 			set "forceAll=1"
 			del /F /Q "%filePath%"
 		)
 	)
 )
 
-:: Check if the directory is empty
+:: If the directory is empty, remove it; otherwise, clean up fallback privileges
 dir /b "%targetDir%" | findstr . >nul
 if errorlevel 1 (
-	:: Directory is empty; attempt to remove it
 	rd "%targetDir%"
 ) else (
 	if "%forceAll" == "1" (
-		echo Removing All Application Package privileges...
-		:: Remove the ALL APPLICATION PACKAGES permission as it was only intended for the removal operation
-		icacls "%targetDir%" /remove "*S-1-15-2-1" >nul
+		echo Removing All Users privileges...
+		icacls "%targetDir%" /remove "*S-1-5-32-545" >nul
+	)
+	if "%forceAdmin" == "1" (
+		echo Removing Administrator Group privileges...
+		icacls "%targetDir%" /remove "*S-1-5-32-544" >nul
 	)
 )
 
