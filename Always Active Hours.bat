@@ -733,9 +733,15 @@ if not exist "%targetDir%" (
 	)
 )
 
-:: Copy the script to the target directory
 echo Copying batch file to the installation directory...
+
+:: Copy the script to the target directory with /-I to force file interpretation
 xcopy "%scriptPath%" "%filePath%" /Y /-I /Q >nul 2>&1
+
+:: If the copy failed, try piping "f" to answer the prompt
+if not exist "%filePath%" (
+	echo f | xcopy "%scriptPath%" "%filePath%" /Y /Q >nul 2>&1
+)
 
 :: If the copy failed, try applying Administrator privileges and copy again
 if not exist "%filePath%" (
@@ -744,6 +750,9 @@ if not exist "%filePath%" (
 		icacls "%targetDir%" /grant:r "*S-1-5-32-544":(^OI^)(^CI^)^F >nul
 		set "forceAdmin=1"
 		xcopy "%scriptPath%" "%filePath%" /Y /-I /Q >nul 2>&1
+		if not exist "%filePath%" (
+			echo f | xcopy "%scriptPath%" "%filePath%" /Y /Q >nul 2>&1
+		)
 	)
 )
 
@@ -754,6 +763,9 @@ if not exist "%filePath%" (
 		icacls "%targetDir%" /grant:r "*S-1-5-32-545":(^OI^)(^CI^)^F >nul
 		set "forceAll=1"
 		xcopy "%scriptPath%" "%filePath%" /Y /-I /Q >nul 2>&1
+		if not exist "%filePath%" (
+			echo f | xcopy "%scriptPath%" "%filePath%" /Y /Q >nul 2>&1
+		)
 	)
 )
 
@@ -783,7 +795,6 @@ set "forceAll=0"
 :: Delete the file; if deletion fails, apply fallback permissions and try again
 if exist "%filePath%" (
 	echo Deleting the batch file...
-
 	del /F /Q "%filePath%"
 	if exist "%filePath%" (
 		echo Applying Administrator Group privileges...
