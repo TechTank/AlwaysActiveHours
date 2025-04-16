@@ -59,6 +59,25 @@ if "%asTask%"=="true" (
 
 :: ==========
 
+:: Obtain the escape character and store it in ESC
+for /f "delims=" %%A in ('echo prompt $E^| cmd') do set "ESC=%%A"
+
+:: ==========
+
+:: Read EditionID from registry
+for /f "tokens=3" %%i in ('reg query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion" /v EditionID ^| find "EditionID"') do (
+	set "edition=%%i"
+)
+
+:: Check if it's Home edition (Core = Home)
+if /i "%edition%"=="Core" (
+	set "homeEdition=1"
+) else (
+	set "homeEdition=0"
+)
+
+:: ==========
+
 :: Set task variables
 set "taskName=Always Active Hours"
 set "scriptPath=%~f0"
@@ -92,8 +111,8 @@ for /l %%i in (0,1,50) do (
 
 :: Calculate padding
 set /a innerWidth=51
-set /a padLeft=(innerWidth - len) / 2
-set /a padRight=innerWidth - len - padLeft
+set /a padRight=(innerWidth - len) / 2
+set /a padLeft=innerWidth - len - padRight
 
 :: Pad and print
 set "spaces=                                                       "
@@ -421,28 +440,56 @@ if not "%activeHoursMaxRangeDec%"=="18" (
 echo.
 echo %dashLine%
 echo.
+
+:: =====
+
 if "%taskExists%"=="true" (
 	echo   1. Disable Scheduled Task
 ) else (
 	echo   1. Enable Scheduled Task
 )
-if "%noRebootPolicy%"=="true" (
-	echo   2. Disable No Auto Reboot Policy
-) else (
-	echo   2. Enable No Auto Reboot Policy
-)
+
 echo   3. Shift Active Hours
-echo   4. Delay Aggressive Updates
+
+if "%noRebootPolicy%"=="true" (
+	echo   3. Disable No Auto Reboot Policy
+) else (
+	if "%homeEdition%" == "0" (
+		echo   3. Enable No Auto Reboot Policy
+	) else (
+		echo   3. %ESC%[90mEnable No Auto Reboot Policy%ESC%[0m
+	)
+)
+
+if "%homeEdition%" == "0" (
+	echo   4. Delay Aggressive Updates
+) else (
+	echo   4. %ESC%[90mDelay Aggressive Updates%ESC%[0m
+)
+
 echo   5. Refresh
 echo   6. Exit
+
+:: =====
+
 echo.
 echo %dashLine%
 echo.
 set /p "choice=  Enter your choice (1-6): "
 
 if "%choice%" == "1" goto toggle_task
-if "%choice%" == "2" goto toggle_no_reboot
-if "%choice%" == "3" goto shift_hours
+if "%choice%" == "2" goto shift_hours
+if "%choice%" == "3" (
+	if "%homeEdition%" == "0" (
+		goto toggle_no_reboot
+	) else (
+		if "%noRebootPolicy%"=="true" (
+			goto toggle_no_reboot
+		) else (
+			goto toggle_no_reboot_home
+		)
+	)
+)
 if "%choice%" == "4" goto delay_updates
 if "%choice%" == "5" goto menu
 if "%choice%" == "6" goto end
@@ -833,7 +880,7 @@ goto :eof
 :toggle_no_reboot
 
 :: Display the Title
-call :title "No Reboot Policy Settings"
+call :title "No Auto Reboot Policy Settings"
 
 if "%noRebootPolicy%"=="true" (
 	:: Disable No Auto Reboot Policy
@@ -874,6 +921,60 @@ if "%noRebootPolicy%"=="true" (
 echo.
 pause
 goto menu
+
+:: ==========
+
+:toggle_no_reboot_home
+
+call :title "No Auto Reboot Policy Settings"
+
+echo  This feature is not supported on Home editions.
+echo.
+echo  Windows 10 and 11 Home editions do not honor the
+echo  NoAutoRebootWithLoggedOnUsers policy. Even if added
+echo  to the registry, it will be ignored by the Windows
+echo  Update system.
+echo.
+echo  This limitation is hardcoded and cannot be bypassed
+echo  without upgrading to Windows Pro or higher.
+echo.
+echo %dashLine%
+echo.
+
+:: Set userInput to an empty string
+set "userInput="
+
+:: Prompt for enabling the policy (1/y/yes, 0/n/no)
+set /p "userInput=Do you still want to enable this policy? (Y,N): "
+
+:: Remove leading and trailing spaces, and convert to lowercase
+set "response=%userInput%"
+for %%A in (E N O S Y) do (
+	set "response=!response:%%A=%%A!"
+)
+set "response=!response: =!"
+
+set result=-1
+:: Match user input to valid responses
+if /i "%response%"=="1" set result=1
+if /i "%response%"=="y" set result=1
+if /i "%response%"=="yes" set result=1
+if /i "%response%"=="0" set result=0
+if /i "%response%"=="n" set result=0
+if /i "%response%"=="no" set result=0
+
+:: Check if result was set
+if "%result%" == "-1" (
+	echo Invalid input. Please enter 1/Y/Yes or 0/N/No.
+	pause
+	goto toggle_no_reboot_home
+)
+if "%result%" == "0" (
+	goto menu
+) else (
+	:: Result has been accepted
+	goto toggle_no_reboot
+)
 
 :: ========== ========== ========== ========== ==========
 
@@ -1134,8 +1235,14 @@ if "%complianceDeadline%"=="1" (
 echo.
 echo %dashLine%
 echo.
-echo   1. Automatically Set Max Delays
-echo   2. Manually Configure Delays
+
+if "%homeEdition%" == "0" (
+	echo   1. Automatically Set Max Delays
+	echo   2. Manually Configure Delays
+) else (
+	echo   1. %ESC%[90mAutomatically Set Max Delays%ESC%[0m
+	echo   2. %ESC%[90mManually Configure Delays%ESC%[0m
+)
 echo   3. Remove All Delay Settings
 echo   4. Refresh
 echo   5. Return To Main Menu
@@ -1144,8 +1251,20 @@ echo %dashLine%
 echo.
 set /p "choice=  Enter your choice (1-5): "
 
-if "%choice%" == "1" goto set_max_delays
-if "%choice%" == "2" goto manual_delay_config
+if "%choice%" == "1" (
+	if "%homeEdition%" == "0" (
+		goto set_max_delays
+	) else (
+		goto set_max_delays_home
+	)
+)
+if "%choice%" == "2" (
+	if "%homeEdition%" == "0" (
+		goto manual_delay_config
+	) else (
+		goto manual_delay_config_home
+	)
+)
 if "%choice%" == "3" goto clear_delays
 if "%choice%" == "4" goto delay_updates
 if "%choice%" == "5" goto menu
@@ -1175,6 +1294,59 @@ echo Aggressive update delays have been set to maximum.
 echo.
 pause
 goto delay_updates
+
+:: ========== ========== ========== ========== ==========
+
+:set_max_delays_home
+
+call :title "Automatic Aggressive Update Settings"
+
+echo  This feature is not supported on Home editions.
+echo.
+echo  Windows 10 and 11 Home editions do not honor the
+echo  deadline policies. Even if added to the registry,
+echo  they will be ignored by the Windows Update system.
+echo.
+echo  This limitation is hardcoded and cannot be bypassed
+echo  without upgrading to Windows Pro or higher.
+echo.
+echo %dashLine%
+echo.
+
+:: Set userInput to an empty string
+set "userInput="
+
+:: Prompt for modifying the policies (1/y/yes, 0/n/no)
+set /p "userInput=Do you still want to modify these policies? (Y,N): "
+
+:: Remove leading and trailing spaces, and convert to lowercase
+set "response=%userInput%"
+for %%A in (E N O S Y) do (
+	set "response=!response:%%A=%%A!"
+)
+set "response=!response: =!"
+
+set result=-1
+:: Match user input to valid responses
+if /i "%response%"=="1" set result=1
+if /i "%response%"=="y" set result=1
+if /i "%response%"=="yes" set result=1
+if /i "%response%"=="0" set result=0
+if /i "%response%"=="n" set result=0
+if /i "%response%"=="no" set result=0
+
+:: Check if result was set
+if "%result%" == "-1" (
+	echo Invalid input. Please enter 1/Y/Yes or 0/N/No.
+	pause
+	goto set_max_delays_home
+)
+if "%result%" == "0" (
+	goto delay_updates
+) else (
+	:: Result has been accepted
+	goto set_max_delays
+)
 
 :: ========== ========== ========== ========== ==========
 
@@ -1491,6 +1663,59 @@ echo.
 pause
 endlocal
 goto delay_updates
+
+:: ========== ========== ========== ========== ==========
+
+:manual_delay_config_home
+
+call :title "Manual Aggressive Update Settings"
+
+echo  This feature is not supported on Home editions.
+echo.
+echo  Windows 10 and 11 Home editions do not honor the
+echo  deadline policies. Even if added to the registry,
+echo  they will be ignored by the Windows Update system.
+echo.
+echo  This limitation is hardcoded and cannot be bypassed
+echo  without upgrading to Windows Pro or higher.
+echo.
+echo %dashLine%
+echo.
+
+:: Set userInput to an empty string
+set "userInput="
+
+:: Prompt for modifying the policies (1/y/yes, 0/n/no)
+set /p "userInput=Do you still want to modify these policies? (Y,N): "
+
+:: Remove leading and trailing spaces, and convert to lowercase
+set "response=%userInput%"
+for %%A in (E N O S Y) do (
+	set "response=!response:%%A=%%A!"
+)
+set "response=!response: =!"
+
+set result=-1
+:: Match user input to valid responses
+if /i "%response%"=="1" set result=1
+if /i "%response%"=="y" set result=1
+if /i "%response%"=="yes" set result=1
+if /i "%response%"=="0" set result=0
+if /i "%response%"=="n" set result=0
+if /i "%response%"=="no" set result=0
+
+:: Check if result was set
+if "%result%" == "-1" (
+	echo Invalid input. Please enter 1/Y/Yes or 0/N/No.
+	pause
+	goto manual_delay_config_home
+)
+if "%result%" == "0" (
+	goto delay_updates
+) else (
+	:: Result has been accepted
+	goto manual_delay_config
+)
 
 :: ========== ========== ========== ========== ==========
 
