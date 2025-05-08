@@ -1792,7 +1792,6 @@ call :check_pending_reboot
 
 set "spaces=                                                   "
 
-:: Draw the full table when a reboot is pending
 echo ╔═════════════════════════════════════════════════════╗
 
 :: Component Based Servicing
