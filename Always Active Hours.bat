@@ -378,6 +378,34 @@ goto :eof
 
 :: ========== ========== ========== ========== ==========
 
+:check_pending_reboot
+
+setlocal EnableDelayedExpansion
+
+:: Reset all of the reboot flags
+set "CBS=0" & set "WU=0" & set "PFR=0"
+
+:: Check the registry for the reboot flags
+reg query "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending" >nul 2>&1 && set "CBS=1"
+reg query "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired" >nul 2>&1 && set "WU=1"
+reg query "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager" /v PendingFileRenameOperations >nul 2>&1 && set "PFR=1"
+
+:: If any flag is 1, set overall pending
+if !CBS! EQU 1 (set "REBOOT_PENDING=1")
+if !WU! EQU 1 (set "REBOOT_PENDING=1")
+if !PFR! EQU 1 (set "REBOOT_PENDING=1")
+
+endlocal & (
+	set "CBS=%CBS%"
+	set "WU=%WU%"
+	set "PFR=%PFR%"
+	set "REBOOT_PENDING=%REBOOT_PENDING%"
+)
+
+goto :eof
+
+:: ========== ========== ========== ========== ==========
+
 :menu
 
 :: Check if the scheduled task exists
@@ -421,8 +449,10 @@ if defined activeStartDisplay if defined activeEndDisplay (
 	call :display_active_hours %activeStart% %activeEnd%
 	echo.
 	set "space="
-	if %activeStart% LSS 10 if %activeEnd% LSS 10 set "space= "
-	if %activeStart% GEQ 12 if %activeStart% LEQ 21 set "space= "
+	if %activeStart% LSS 10 if %activeEnd% LSS 10 set "space=!space! "
+	if %activeStart% LSS 10 if %activeEnd% GEQ 13 if %activeEnd% LEQ 20 set "space=!space! "
+	if %activeStart% GEQ 13 if %activeStart% LEQ 21 if %activeEnd% LSS 10 set "space=!space! "
+	if %activeStart% GEQ 13 if %activeStart% LEQ 21 if %activeEnd% GEQ 13 if %activeEnd% LEQ 21 set "space=!space! "
 	echo !space!Your current active hours are set between %activeStartDisplay% and %activeEndDisplay%
 ) else (
 	echo Error: Unable to fetch active hours settings.
@@ -437,6 +467,15 @@ if not "%activeHoursMaxRangeDec%"=="18" (
 	echo !space!Your active hours range is limited to %activeHoursMaxRangeDec% hours
 )
 
+call :check_pending_reboot
+
+echo.
+if "%REBOOT_PENDING%"=="1" (
+	echo              A reboot is currently pending
+) else (
+	echo          System is in a clean reboot state
+)
+
 echo.
 echo %dashLine%
 echo.
@@ -449,7 +488,7 @@ if "%taskExists%"=="true" (
 	echo   1. Enable Scheduled Task
 )
 
-echo   3. Shift Active Hours
+echo   2. Shift Active Hours
 
 if "%noRebootPolicy%"=="true" (
 	echo   3. Disable No Auto Reboot Policy
@@ -467,15 +506,16 @@ if "%homeEdition%" == "0" (
 	echo   4. %ESC%[90mDelay Aggressive Updates%ESC%[0m
 )
 
-echo   5. Refresh
-echo   6. Exit
+echo   5. Required Reboots
+echo   6. Refresh
+echo   7. Exit
 
 :: =====
 
 echo.
 echo %dashLine%
 echo.
-set /p "choice=  Enter your choice (1-6): "
+set /p "choice=  Enter your choice (1-7): "
 
 if "%choice%" == "1" goto toggle_task
 if "%choice%" == "2" goto shift_hours
@@ -491,8 +531,9 @@ if "%choice%" == "3" (
 	)
 )
 if "%choice%" == "4" goto delay_updates
-if "%choice%" == "5" goto menu
-if "%choice%" == "6" goto end
+if "%choice%" == "5" goto required_reboots
+if "%choice%" == "6" goto menu
+if "%choice%" == "7" goto end
 goto menu_display
 
 :: ========== ========== ========== ========== ==========
@@ -1739,6 +1780,94 @@ echo All aggressive update delay settings have been removed.
 echo.
 pause
 goto delay_updates
+
+:: ========== ========== ========== ========== ==========
+
+:required_reboots
+
+:: Display the title
+call :title "Required Reboot Operations"
+
+call :check_pending_reboot
+
+set "spaces=                                                   "
+
+:: Draw the full table when a reboot is pending
+echo ╔═════════════════════════════════════════════════════╗
+
+:: Component Based Servicing
+set "label=Component Based Servicing"
+set "line=║  !label!"
+set "line=!line!!spaces!"
+if "%CBS%"=="1" (set "value=Yes") else (set "value=No")
+set "line=!line:~0,45!  !value!"
+set "line=!line!!spaces!"
+set "line=!line:~0,53! ║"
+echo !line!
+
+echo ╟─────────────────────────────────────────────────────╢
+
+:: Windows Update Reboot Required
+set "label=Windows Update Reboot Required"
+set "line=║  !label!"
+set "line=!line!!spaces!"
+if "%WU%"=="1" (set "value=Yes") else (set "value=No")
+set "line=!line:~0,45!  !value!"
+set "line=!line!!spaces!"
+set "line=!line:~0,53! ║"
+echo !line!
+
+echo ╟─────────────────────────────────────────────────────╢
+
+:: Pending FileRenameOperations
+set "label=Pending FileRenameOperations"
+set "line=║  !label!"
+set "line=!line!!spaces!"
+if "%PFR%"=="1" (set "value=Yes") else (set "value=No")
+set "line=!line:~0,45!  !value!"
+set "line=!line!!spaces!"
+set "line=!line:~0,53! ║"
+echo !line!
+
+echo ╚═════════════════════════════════════════════════════╝
+
+echo.
+echo.
+if "%REBOOT_PENDING%"=="1" (
+	echo          A reboot is required
+	echo.
+	echo   Reboot Details
+	echo.
+	if "%CBS%"=="1" (
+		echo     Component Based Servicing
+		echo          • servicing changes pending
+		echo          • reboot will complete component servicing
+		echo.
+	)
+	if "%WU%"=="1" (
+		echo     Windows Update
+		echo          • updates have been staged
+		echo          • reboot required to finish installation
+		echo.
+	)
+	if "%PFR%"=="1" (
+		echo     File Rename Operations
+		echo          • some files marked for rename/deletion
+		echo          • reboot needed to apply changes
+		echo.
+	)
+) else (
+	echo            System is in a clean reboot state
+	echo          No pending reboot operations detected
+)
+
+echo.
+echo %dashLine%
+echo.
+
+echo.
+pause
+goto menu
 
 :: ========== ========== ========== ========== ==========
 
