@@ -337,34 +337,18 @@ if /i "!month!"=="Dec" set "month=12"
 set "value=!month!"
 set "invalidMonth=0"
 
-:: Try arithmetic eval, will fail if not numeric
-2>nul set /a _testNum=value+0
-if errorlevel 1 (
-	set "invalidMonth=1"
-) else (
-	:: Ensure fully numeric by comparing lengths
-	set "checkNum=!_testNum!"
-	if not "!value!"=="!checkNum!" (
-		set "invalidMonth=1"
-	)
-)
-
 :: Convert to numbers to remove any existing leading zeros, then pad to two digits if needed
-set /a m=month
-if not "!invalidMonth!"=="1" (
-	if %m% LSS 10 (
-		set "month=0%m%"
-	) else (
-		set "month=%m%"
-	)
-)
+if "!month:~0,1!"=="0" set "month=!month:~1!"
 
-set /a d=day
-if %d% LSS 10 (
-	set "day=0%d%"
-) else (
-	set "day=%d%"
-)
+:: Try arithmetic eval, will fail if not numeric
+if "%month%" LSS "0" set "invalidMonth=1"
+if "%month%" GEQ 13 set "invalidMonth=1"
+
+if "%month%" LSS 10 set "month=0%month%"
+
+:: Decimal interpretation for days
+if "!day:~0,1!"=="0" set "day=!day:~1!"
+if "%day%" LSS 10 set "day=0%day%"
 
 :: End the local block and return results in global variables
 endlocal & (
@@ -629,6 +613,7 @@ if "%taskExists%"=="true" (
 :: Parse the time and date strings by reading the language settings
 call :parse_system_time
 call :parse_system_date
+
 if "%INVALID_MONTH%"=="1" (
 	set "MONTH=01"
 )
@@ -1833,9 +1818,7 @@ echo ╚════════════════════════
 echo.
 echo.
 if "%REBOOT_PENDING%"=="1" (
-	echo          A reboot is required
-	echo.
-	echo   Reboot Details
+	echo                 A reboot is required
 	echo.
 	if "%CBS%"=="1" (
 		echo     Component Based Servicing
