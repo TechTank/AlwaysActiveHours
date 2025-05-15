@@ -1,13 +1,38 @@
 @echo off
-REM Version: 1.0
-REM Filename: Always Active Hours.bat
-REM Written by: Brogan Scott Houston McIntyre
+
+rem Version: 1.0
+rem Filename: Always Active Hours.bat
+rem Written by: Brogan Scott Houston McIntyre
+
+rem ========== ========== ========== ========= ==========
+
+	rem Beginning of normalization
+	rem ===== ===== ===== ===== =====
+
+	setlocal EnableDelayedExpansion
+
+	rem Source and temp paths
+	set "src=%~f0" & set "tmp=%TEMP%\%~nx0_%random%.tmp"
+
+	rem Normalize LF to CRLF into the temp file
+	type "%src%" | find /V "" > "%tmp%"
+
+	rem Add goto to skip the normalization header, remove the temp file and restart
+	( echo @echo off & echo :: Skip normalization & echo goto main & echo. & echo :: ========== ========== ========== ========== ========== & echo. & type "%tmp%" ) > "%src%" & del "%tmp%" & endlocal & call "%src%" & exit /B
+
+	rem ===== ===== ===== ===== =====
+	rem End of normalization
+
+:: ========== ========== ========== ========== ==========
+
+:: The main Always Active Hours script
+:main
 
 :: Set column and row dimensions
 mode con: cols=55 lines=28
 
 :: Set code page to UTF-8
-CHCP 65001 >nul
+chcp 65001 >nul
 
 setlocal enabledelayedexpansion
 title Always Active Hours Configurator
@@ -638,7 +663,7 @@ if %errorlevel% neq 0 (
 
 echo Creating the scheduled task...
 
-REM Create temporary XML file
+rem Create temporary XML file
 (
 	echo ^<?xml version="1.0" encoding="UTF-16"?^>
 	echo ^<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task"^>
