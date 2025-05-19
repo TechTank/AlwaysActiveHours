@@ -1887,14 +1887,17 @@ rem ═
 cls
 
 if %errorlevel%==9009 (
-	:: Source and temp paths
-	set "src=%~f0" & set "tmp=%USERPROFILE%\AppData\Local\Temp\%~nx0_%random%.tmp"
-
-	:: Normalize LF to CRLF into the temp file
-	type "%src%" | find /V "" > "%tmp%" 
-
-	:: Copy the temp file to our original source, remove the temp file, reset the code page and restart
-	type "%tmp%" > "%src%" & del "%tmp%" & endlocal & chcp %codepage% >nul & call "%src%" & exit /B
+	goto repair
 )
-
 goto main
+
+:repair
+
+:: Source and temp paths
+set "src=%~f0" & set "tmp=%TEMP%\%~nx0_%random%.tmp"
+
+:: Normalize LF to CRLF into the temp file
+type "%src%" | find /V "" > "%tmp%" 
+
+:: Copy the temp file to our original source, remove the temp file, reset the code page and restart
+type "%tmp%" > "%src%" & del "%tmp%" & chcp %codepage% >nul & call "%src%" & exit /B
