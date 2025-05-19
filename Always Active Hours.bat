@@ -1,27 +1,11 @@
-@echo off
+@echo off & for /f "tokens=2 delims=:" %%a in ('chcp') do set "codepage=%%a" & chcp 65001 >nul & goto :eol_verify
+:: Store the original code page, change the code page to UTF-8 and verify the line endings
 
-rem Version: 1.0
-rem Filename: Always Active Hours.bat
-rem Written by: Brogan Scott Houston McIntyre
+:: ========== ========== ========== ========== ==========
 
-rem ========== ========== ========== ========= ==========
-
-	rem Beginning of normalization
-	rem ===== ===== ===== ===== =====
-
-	setlocal EnableDelayedExpansion
-
-	rem Source and temp paths
-	set "src=%~f0" & set "tmp=%TEMP%\%~nx0_%random%.tmp"
-
-	rem Normalize LF to CRLF into the temp file
-	type "%src%" | find /V "" > "%tmp%"
-
-	rem Add goto to skip the normalization header, remove the temp file and restart
-	( echo @echo off & echo :: Skip normalization & echo goto main & echo. & echo :: ========== ========== ========== ========== ========== & echo. & type "%tmp%" ) > "%src%" & del "%tmp%" & endlocal & call "%src%" & exit /B
-
-	rem ===== ===== ===== ===== =====
-	rem End of normalization
+:: Version: 1.0
+:: Filename: Always Active Hours.bat
+:: Written by: Brogan Scott Houston McIntyre
 
 :: ========== ========== ========== ========== ==========
 
@@ -30,9 +14,6 @@ rem ========== ========== ========== ========= ==========
 
 :: Set column and row dimensions
 mode con: cols=55 lines=28
-
-:: Set code page to UTF-8
-chcp 65001 >nul
 
 setlocal enabledelayedexpansion
 title Always Active Hours Configurator
@@ -1880,4 +1861,40 @@ goto menu
 
 :end
 endlocal
+chcp %codepage% >nul
 exit /b
+
+:: ========== ========== ========== ========== ==========
+
+:: Use a poison to verify line endings and repair the file if necessary
+
+:: ----------------------------------------
+:: ----------------------------------------
+:: ----------------------------------------
+:: ----------------------------------------
+:: ----------------------------------------
+:: --------------BUFFER-BLOCK--------------
+:: ----------------------------------------
+:: ----------------------------------------
+:: ----------------------------------------
+:: ----------------------------------------
+:: ----------------------------------------
+
+:eol_verify
+rem ═
+:═?    ?
+
+cls
+
+if %errorlevel%==9009 (
+	:: Source and temp paths
+	set "src=%~f0" & set "tmp=%TEMP%\%~nx0_%random%.tmp"
+
+	:: Normalize LF to CRLF into the temp file
+	type "%src%" | find /V "" > "%tmp%" 
+
+	:: Copy the temp file to our original source, remove the temp file, reset the code page and restart
+	type "%tmp%" > "%src%" & del "%tmp%" & endlocal & chcp %codepage% >nul & call "%src%" & exit /B
+)
+
+goto main
