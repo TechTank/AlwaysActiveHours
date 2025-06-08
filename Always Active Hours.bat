@@ -254,7 +254,11 @@ for /f "tokens=2,*" %%A in ('reg query "HKCU\Control Panel\International" /v sDa
 set "shortDateFormat=%shortDateFormat:REG_SZ=%"
 set "dateSeparator=%dateSeparator:REG_SZ=%"
 for /f "tokens=* delims= " %%C in ("!shortDateFormat!") do set "shortDateFormat=%%C"
-for /f "tokens=* delims= " %%C in ("!dateSeparator!") do set "dateSeparator=%%C"
+
+:: Trim the date separator only if it's not a literal space
+if not "!dateSeparator!"==" " (
+	for /f "tokens=* delims= " %%C in ("!dateSeparator!") do set "dateSeparator=%%C"
+)
 
 :: Build the Date Stem, replacing patterns with single letters: 'yyyy'/'yy' -> Y, 'MM' -> M, 'dd' -> D
 set "dateStem=!shortDateFormat!"
@@ -274,21 +278,24 @@ set "dateStem=!dateStem:%dateSeparator%=!"
 set "dateStem=!dateStem:/=!"
 set "dateStem=!dateStem:-=!"
 set "dateStem=!dateStem:.=!"
+set "dateStem=!dateStem: =!"
 
-:: Prepare the Date Core from %DATE%, stripping any weekday prefix
+:: Prepare the Date Core from %DATE%
 set "dateCore=%DATE%"
-if not "%DATE%"=="%DATE: =%" (
-	for /f "tokens=1,* delims= " %%X in ("%DATE%") do (
-		set "dummy=%%X"
-		set "dateCore=%%Y"
-	)
-)
 
 :: Split Date Core into Parts
-for /f "tokens=1-3 delims=%dateSeparator%" %%A in ("%dateCore%") do (
-	set "part1=%%A"
-	set "part2=%%B"
-	set "part3=%%C"
+for /f "tokens=1-4" %%A in ("!dateCore!") do (
+	if not "%%D"=="" (
+		:: Separate the weekday prefix if present
+		set "weekday=%%A"
+		set "part1=%%B"
+		set "part2=%%C"
+		set "part3=%%D"
+	) else (
+		set "part1=%%A"
+		set "part2=%%B"
+		set "part3=%%C"
+	)
 )
 
 :: Map Tokens to Year, Month, Day Using the Date Stem
