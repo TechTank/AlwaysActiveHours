@@ -284,7 +284,7 @@ set "dateStem=!dateStem: =!"
 set "dateCore=%DATE%"
 
 :: Split Date Core into Parts
-for /f "tokens=1-4" %%A in ("!dateCore!") do (
+for /f "tokens=1-4 delims=%delims%" %%A in ("!dateCore!") do (
 	if not "%%D"=="" (
 		:: Separate the weekday prefix if present
 		set "weekday=%%A"
@@ -357,11 +357,11 @@ if "!month:~0,1!"=="0" set "month=!month:~1!"
 if "%month%" LSS "0" set "invalidMonth=1"
 if "%month%" GEQ 13 set "invalidMonth=1"
 
-if "%month%" LSS 10 set "month=0%month%"
+if %month% LSS 10 set "month=0%month%"
 
 :: Decimal interpretation for days
 if "!day:~0,1!"=="0" set "day=!day:~1!"
-if "%day%" LSS 10 set "day=0%day%"
+if %day% LSS 10 set "day=0%day%"
 
 :: End the local block and return results in global variables
 endlocal & (
