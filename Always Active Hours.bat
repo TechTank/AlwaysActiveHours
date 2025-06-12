@@ -242,17 +242,22 @@ goto :eof
 
 setlocal EnableDelayedExpansion
 
-:: Retrieve Regional Date Settings
+:: Retrieve and clean Regional sShortDate
 for /f "tokens=2,*" %%A in ('reg query "HKCU\Control Panel\International" /v sShortDate 2^>nul ^| findstr /i "sShortDate"') do (
 	set "shortDateFormat=%%B"
 )
-for /f "tokens=2,*" %%A in ('reg query "HKCU\Control Panel\International" /v sDate 2^>nul ^| findstr /i "sDate"') do (
-	set "dateSeparator=%%B"
+set "shortDateFormat=!shortDateFormat:REG_SZ=!"
+for /f "tokens=* delims= " %%C in ("!shortDateFormat!") do set "shortDateFormat=%%C"
+
+:: Get raw line for sDate
+for /f "tokens=*" %%L in ('reg query "HKCU\Control Panel\International" /v sDate ^| findstr /i "sDate"') do (
+    set "regLine=%%L"
 )
 
-:: Remove "REG_SZ" if present, and trim extra spaces
-set "shortDateFormat=%shortDateFormat:REG_SZ=%"
-set "dateSeparator=%dateSeparator:REG_SZ=%"
+:: Remove everything up to and including "REG_SZ" (preserve what's after)
+set "dateSeparator=!regLine:*REG_SZ =!"
+set "dateSeparator=!dateSeparator:~3!"
+
 for /f "tokens=* delims= " %%C in ("!shortDateFormat!") do set "shortDateFormat=%%C"
 
 :: Trim the date separator only if it's not a literal space
@@ -283,19 +288,19 @@ set "dateStem=!dateStem: =!"
 :: Prepare the Date Core from %DATE%
 set "dateCore=%DATE%"
 
-:: Split Date Core into Parts
-for /f "tokens=1-4" %%A in ("!dateCore!") do (
-	if not "%%D"=="" (
-		:: Separate the weekday prefix if present
-		set "weekday=%%A"
-		set "part1=%%B"
-		set "part2=%%C"
-		set "part3=%%D"
-	) else (
-		set "part1=%%A"
-		set "part2=%%B"
-		set "part3=%%C"
+:: Strip the weekday prefix if present
+if not "%dateCore%"=="%dateCore: =%" (
+	for /f "tokens=1,* delims= " %%X in ("%dateCore%") do (
+		set "weekday=%%X"
+		set "dateCore=%%Y"
 	)
+)
+
+:: Split Date Core into Parts
+for /f "tokens=1-3 delims=%dateSeparator%" %%A in ("%dateCore%") do (
+	set "part1=%%A"
+	set "part2=%%B"
+	set "part3=%%C"
 )
 
 :: Map Tokens to Year, Month, Day Using the Date Stem
@@ -355,13 +360,12 @@ if "!month:~0,1!"=="0" set "month=!month:~1!"
 
 :: Try arithmetic eval, will fail if not numeric
 if "%month%" LSS "0" set "invalidMonth=1"
-if "%month%" GEQ 13 set "invalidMonth=1"
-
-if "%month%" LSS 10 set "month=0%month%"
+if %month% GEQ 13 set "invalidMonth=1"
+if %month% LSS 10 set "month=0%month%"
 
 :: Decimal interpretation for days
 if "!day:~0,1!"=="0" set "day=!day:~1!"
-if "%day%" LSS 10 set "day=0%day%"
+if %day% LSS 10 set "day=0%day%"
 
 :: End the local block and return results in global variables
 endlocal & (
