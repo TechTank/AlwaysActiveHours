@@ -268,17 +268,15 @@ if not "!dateSeparator!"==" " (
 :: Build the Date Stem, replacing patterns with single letters: 'yyyy'/'yy' -> Y, 'MM' -> M, 'dd' -> D
 set "dateStem=!shortDateFormat!"
 set "dateStem=!dateStem:yyyy=Y!"
-set "dateStem=!dateStem:YYYY=Y!"
 set "dateStem=!dateStem:yy=Y!"
-set "dateStem=!dateStem:YY=Y!"
-set "dateStem=!dateStem:MMMMM=M!"
 set "dateStem=!dateStem:MMMM=M!"
 set "dateStem=!dateStem:MMM=M!"
 set "dateStem=!dateStem:MM=M!"
-set "dateStem=!dateStem:mm=M!"
-set "dateStem=!dateStem:d=D!"
+set "dateStem=!dateStem:dddd=D!"
+set "dateStem=!dateStem:ddd=D!"
 set "dateStem=!dateStem:dd=D!"
-set "dateStem=!dateStem:DD=D!"
+set "dateStem=!dateStem:d=D!"
+
 :: Remove any occurrences of the separator and common delimiters
 set "dateStem=!dateStem:%dateSeparator%=!"
 set "dateStem=!dateStem:/=!"
