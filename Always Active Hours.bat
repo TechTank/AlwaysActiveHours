@@ -70,17 +70,15 @@ for /f "delims=" %%A in ('echo prompt $E^| cmd') do set "ESC=%%A"
 
 :: ==========
 
-:: Read EditionID from registry
-for /f "tokens=3" %%i in ('reg query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion" /v EditionID ^| find "EditionID"') do (
-	set "edition=%%i"
-)
+:: Retrieve the EditionID from the registry
+for /f "tokens=2,*" %%A in ('reg query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion" /v EditionID ^| findstr /r /c:"EditionID"') do set "edition=%%B"
+
+:: Strip leading and trailing spaces from the edition
+set "edition=!edition: =!"
 
 :: Check if it's Home edition (Core = Home)
-if /i "%edition%"=="Core" (
-	set "homeEdition=1"
-) else (
-	set "homeEdition=0"
-)
+set "homeEdition=0"
+echo !edition! | findstr /i "^Core" >nul && set "homeEdition=1"
 
 :: ==========
 
@@ -383,7 +381,7 @@ goto :eof
 setlocal EnableDelayedExpansion
 
 :: Reset all of the reboot flags
-set "CBS=0" & set "WU=0" & set "PFR=0"
+set "CBS=0" & set "WU=0" & set "PFR=0" & set "REBOOT_PENDING=0"
 
 :: Check the registry for the reboot flags
 reg query "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending" >nul 2>&1 && set "CBS=1"
