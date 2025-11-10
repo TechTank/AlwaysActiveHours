@@ -1,4 +1,4 @@
-@echo off & for /f "tokens=2 delims=:" %%a in ('chcp') do set "codepage=%%a" & chcp 65001 >nul & goto :eol_verify
+@echo off & for /f "tokens=2 delims=:" %%a in ('chcp') do set /a "codepage=%%a" & chcp 65001 >nul & goto :eol_verify
 :: Store the original code page, change the code page to UTF-8 and verify the line endings
 
 :: ========== ========== ========== ========== ==========
@@ -71,14 +71,16 @@ for /f "delims=" %%A in ('echo prompt $E^| cmd') do set "ESC=%%A"
 :: ==========
 
 :: Retrieve the EditionID from the registry
-for /f "tokens=2,*" %%A in ('reg query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion" /v EditionID ^| findstr /r /c:"EditionID"') do set "edition=%%B"
+call :read_sz "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion" "EditionID" edition
 
-:: Strip leading and trailing spaces from the edition
-set "edition=!edition: =!"
+:: Trim leading spaces
+for /f "tokens=* delims= " %%S in ("%edition%") do set "edition=%%S"
 
-:: Check if it's Home edition (Core = Home)
+:: Detect Home SKUs by exact match
 set "homeEdition=0"
-echo !edition! | findstr /i "^Core" >nul && set "homeEdition=1"
+for %%E in (Core CoreN CoreSingleLanguage CoreSingleLanguageN CoreCountrySpecific) do (
+	if /i "%edition%"=="%%E" set "homeEdition=1"
+)
 
 :: ==========
 
@@ -92,6 +94,111 @@ set "taskErrorLog=%temp%\schtasks_error.log"
 set "dashLine=-------------------------------------------------------"
 
 goto menu
+
+:: ========== ========== ========== ========== ==========
+
+:: :key_exists <reg path> <outVar>
+:key_exists
+
+setlocal
+reg query "%~1" >nul 2>&1
+endlocal & if %errorlevel%==0 (set "%~2=1") else (set "%~2=0")
+
+goto :eof
+
+:: ~~~~~~~~~~
+
+:: :value_exists "<key>" "<valueName>" <outVarNumeric>
+:value_exists
+
+setlocal EnableDelayedExpansion
+reg query "%~1" /v "%~2" /reg:64 >nul 2>&1 || reg query "%~1" /v "%~2" >nul 2>&1
+set "rc=!errorlevel!"
+endlocal & if "%rc%"=="0" (set "%~3=1") else (set "%~3=0")
+
+goto :eof
+
+:: ~~~~~~~~~~
+
+:: :value_exists_bool "<key>" "<valueName>" <outVarBool>
+:value_exists_bool
+
+setlocal
+call :value_exists "%~1" "%~2" _vxb_rc
+endlocal & if "%_vxb_rc%"=="1" (set "%~3=true") else (set "%~3=false")
+
+goto :eof
+
+:: ~~~~~~~~~~
+
+:: :read_dword "<key>" "<valueName>" <outVar> <default>
+:read_dword
+
+setlocal EnableExtensions DisableDelayedExpansion
+set "rk=%~1" & set "vn=%~2" & set "def=%~4"
+set "type=" & set "val="
+
+:: Read the value (use 64-bit view to avoid WOW64 redirect on x64)
+for /f "skip=2 tokens=2,*" %%A in ('
+	reg query "%rk%" /v "%vn%" /reg:64 2^>nul
+') do (
+		set "type=%%A"
+		set "val=%%B"
+)
+
+:: Fallback to default if not found
+if not defined val (
+	for /f "skip=2 tokens=2,*" %%A in ('
+		reg query "%rk%" /v "%vn%" 2^>nul
+	') do (
+		set "type=%%A"
+		set "val=%%B"
+	)
+)
+
+:: If still missing, return the caller-provided default
+if not defined val (
+	endlocal & set "%~3=%def%" & goto :eof
+)
+
+:: reg output for REG_DWORD is typically "0x######## (####)"
+:: Keep only the first token to drop the "(####)" decimal echo
+for /f %%D in ("%val%") do set "val=%%D"
+
+:: Convert to decimal. `set /a` accepts hex (0x...) and decimal
+:: On conversion failure, fall back to the default
+2>nul set /a dec=%val%+0
+if errorlevel 1 set "dec=%def%"
+
+endlocal & set "%~3=%dec%"
+
+goto :eof
+
+:: ~~~~~~~~~~
+
+:: :read_sz <key> <ValueName> <outVar>
+:read_sz
+
+setlocal EnableExtensions DisableDelayedExpansion
+set "out="
+
+for /f "tokens=2,*" %%A in ('
+	reg query "%~1" /v "%~2" /reg:64 2^>nul ^| findstr /i "REG_SZ REG_EXPAND_SZ"
+') do set "out=%%B"
+
+if not defined out (
+	for /f "tokens=2,*" %%A in ('
+		reg query "%~1" /v "%~2" 2^>nul ^| findstr /i "REG_SZ REG_EXPAND_SZ"
+	') do set "out=%%B"
+)
+
+:: Trim leading spaces
+setlocal EnableDelayedExpansion
+for /f "tokens=* delims= " %%S in ("!out!") do set "out=%%S"
+endlocal & set "out=%out%"
+
+endlocal & set "%~3=%out%"
+goto :eof
 
 :: ========== ========== ========== ========== ==========
 
@@ -136,13 +243,7 @@ goto :eof
 :get_active_hours_range
 
 :: Fetch Active Hours Max Range if set by policy
-reg query "HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v ActiveHoursMaxRange >nul 2>&1
-if %errorlevel% equ 0 (
-	for /f "tokens=3" %%A in ('reg query "HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v ActiveHoursMaxRange 2^>nul') do set activeHoursMaxRange=%%A
-) else (
-	set activeHoursMaxRange=0x12
-)
-set /a activeHoursMaxRangeDec=%activeHoursMaxRange%
+call :read_dword "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" "ActiveHoursMaxRange" activeHoursMaxRangeDec 18
 
 :: Clamp range between 8 and 18 hours (Windows defaults to 18 if out of range)
 if %activeHoursMaxRangeDec% LSS 8 (
@@ -178,57 +279,62 @@ goto :eof
 
 setlocal EnableDelayedExpansion
 
-:: Extract the hour, minute, and second from %TIME%
-set "hour=%TIME:~0,2%"
-set "minute=%TIME:~3,2%"
-set "second=%TIME:~6,2%"
+set "now=%TIME%"
+set "invalidTime=0"
+
+:: Split H:M:S and optional AM/PM
+for /f "tokens=1-4 delims=:., " %%a in ("%now%") do (
+	set "h=%%a"
+	set "m=%%b"
+	set "s=%%c"
+	set "ampm=%%d"
+)
 
 :: Trim leading spaces
-set "hour=!hour: =!"
-set "minute=!minute: =!"
-set "second=!second: =!"
+set "h=!h: =!"
+set "m=!m: =!"
+set "s=!s: =!"
+set "ampm=!ampm: =!"
 
-:: Validate that hour, minute, and second are numeric
-set "invalidTime=0"
-set /a dummy=1*%hour% >nul 2>&1 || set "invalidTime=1"
-set /a dummy=1*%minute% >nul 2>&1 || set "invalidTime=1"
-set /a dummy=1*%second% >nul 2>&1 || set "invalidTime=1"
-
-if "!hour:~0,1!"=="0" if "!hour!" NEQ "0" (
-	set "hour=!hour:~1!"
-)
-if "!minute:~0,1!"=="0" if "!minute!" NEQ "0" (
-	set "minute=!minute:~1!"
-)
-if "!second:~0,1!"=="0" if "!second!" NEQ "0" (
-	set "second=!second:~1!"
+:: Normalize numbers
+2>nul (
+	set /a H=1*!h!
+	set /a M=1*!m!
+	set /a S=1*!s!
 )
 
-:: Force two-digit format
-if !hour! LSS 10 (
-	set "hh=0!hour!"
-) else (
-	set "hh=!hour!"
+if not defined H set "invalidTime=1" & set "H=0"
+if not defined M set "invalidTime=1" & set "M=0"
+if not defined S set "invalidTime=1" & set "S=0"
+
+:: Adjust for AM/PM if token captured
+if defined ampm (
+	if /i not "!ampm!"=="AM" if /i not "!ampm!"=="PM" set "invalidTime=1"
+	if /i "!ampm!"=="PM" if !H! LSS 12 set /a H+=12
+	if /i "!ampm!"=="AM" if !H! EQU 12 set /a H=0
 )
-if !minute! LSS 10 (
-	set "mm=0!minute!"
-) else (
-	set "mm=!minute!"
-)
-if !second! LSS 10 (
-	set "ss=0!second!"
-) else (
-	set "ss=!second!"
-)
+
+:: Range checks and clamp
+if !H! LSS 0 (set "invalidTime=1" & set "H=0")
+if !H! GTR 23 (set "invalidTime=1" & set "H=23")
+if !M! LSS 0 (set "invalidTime=1" & set "M=0")
+if !M! GTR 59 (set "invalidTime=1" & set "M=0")
+if !S! LSS 0 (set "invalidTime=1" & set "S=0")
+if !S! GTR 59 (set "invalidTime=1" & set "S=0")
+
+:: Two-digit pads
+if !H! LSS 10 (set "HH=0!H!") else set "HH=!H!"
+if !M! LSS 10 (set "MM=0!M!") else set "MM=!M!"
+if !S! LSS 10 (set "SS=0!S!") else set "SS=!S!"
 
 :: End the local environment and return the values to the global scope
 endlocal & (
-	set "HOUR=%hour%"
-	set "MINUTE=%minute%"
-	set "SECOND=%second%"
-	set "hh=%hh%"
-	set "mm=%mm%"
-	set "ss=%ss%"
+	set "HOUR=%H%"
+	set "MINUTE=%M%"
+	set "SECOND=%S%"
+	set "hh=%HH%"
+	set "mm=%MM%"
+	set "ss=%SS%"
 	set "INVALID_TIME=%invalidTime%"
 )
 
@@ -249,7 +355,7 @@ for /f "tokens=* delims= " %%C in ("!shortDateFormat!") do set "shortDateFormat=
 
 :: Get raw line for sDate
 for /f "tokens=*" %%L in ('reg query "HKCU\Control Panel\International" /v sDate ^| findstr /i "sDate"') do (
-    set "regLine=%%L"
+	set "regLine=%%L"
 )
 
 :: Remove everything up to and including "REG_SZ" (preserve what's after)
@@ -384,14 +490,14 @@ setlocal EnableDelayedExpansion
 set "CBS=0" & set "WU=0" & set "PFR=0" & set "REBOOT_PENDING=0"
 
 :: Check the registry for the reboot flags
-reg query "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending" >nul 2>&1 && set "CBS=1"
-reg query "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired" >nul 2>&1 && set "WU=1"
-reg query "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager" /v PendingFileRenameOperations >nul 2>&1 && set "PFR=1"
+call :key_exists "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending" CBS
+call :key_exists "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired" WU
+call :value_exists "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager" "PendingFileRenameOperations" PFR
 
 :: If any flag is 1, set overall pending
-if !CBS! EQU 1 (set "REBOOT_PENDING=1")
-if !WU! EQU 1 (set "REBOOT_PENDING=1")
-if !PFR! EQU 1 (set "REBOOT_PENDING=1")
+if !CBS! EQU 1 set "REBOOT_PENDING=1"
+if !WU! EQU 1 set "REBOOT_PENDING=1"
+if !PFR! EQU 1 set "REBOOT_PENDING=1"
 
 endlocal & (
 	set "CBS=%CBS%"
@@ -408,27 +514,22 @@ goto :eof
 
 :: Check if the scheduled task exists
 schtasks /query /tn "%taskName%" >nul 2>&1
-if %errorlevel% equ 0 (
+if %errorlevel% EQU 0 (
 	set taskExists=true
 ) else (
 	set taskExists=false
 )
 
 :: Fetch current active hours from the registry
-for /f "tokens=3" %%A in ('reg query "HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings" /v ActiveHoursStart 2^>nul') do set activeStart=%%A
-for /f "tokens=3" %%A in ('reg query "HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings" /v ActiveHoursEnd 2^>nul') do set activeEnd=%%A
+call :read_dword "HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings" "ActiveHoursStart" activeStart 8
+call :read_dword "HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings" "ActiveHoursEnd" activeEnd 18
 
 :: Convert active hours to AM/PM format
 call :convert_to_ampm %activeStart% activeStartDisplay
 call :convert_to_ampm %activeEnd% activeEndDisplay
 
 :: Fetch No Auto Reboot settings
-reg query "HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU" /v NoAutoRebootWithLoggedOnUsers >nul 2>&1
-if %errorlevel% equ 0 (
-	set noRebootPolicy=true
-) else (
-	set noRebootPolicy=false
-)
+call :value_exists_bool "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU" "NoAutoRebootWithLoggedOnUsers" noRebootPolicy
 
 :: Resolve the effective active hours range (policy or default)
 call :get_active_hours_range
@@ -640,7 +741,7 @@ call :install
 echo Enabling active hours...
 
 :: Ensure SmartActiveHoursState is set to 0
-reg add "HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings" /v SmartActiveHoursState /t REG_DWORD /d 0 /f >nul
+reg add "HKLM\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings" /v SmartActiveHoursState /t REG_DWORD /d 0 /f >nul
 if %errorlevel% neq 0 (
 	echo Error: Failed to set SmartActiveHoursState to 0.
 	echo.
@@ -742,16 +843,16 @@ echo.
 echo %dashLine%
 echo.
 
-:: Check if the task action was sucessful or not
+:: Check if the task action was successful or not
 schtasks /query /tn "%taskName%" >nul 2>&1
 if "%taskAction%"=="remove" (
-	if %errorlevel% equ 0 (
+	if %errorlevel% EQU 0 (
 		echo Error: Failed to remove the scheduled task.
 	) else (
 		echo Scheduled task removed successfully.
 	)
 ) else (
-	if %errorlevel% equ 0 (
+	if %errorlevel% EQU 0 (
 		echo Scheduled task created successfully.
 	) else (
 		echo Error: Failed to create the scheduled task.
@@ -925,16 +1026,14 @@ call :title "No Auto Reboot Policy Settings"
 if "%noRebootPolicy%"=="true" (
 	:: Disable No Auto Reboot Policy
 	echo Removing No Auto Reboot policy...
-	reg delete "HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU" /v NoAutoRebootWithLoggedOnUsers /f >nul 2>&1
-
-	set "result="
-	for /f "tokens=*" %%A in ('reg query "HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU" /v NoAutoRebootWithLoggedOnUsers 2^>nul') do set "result=%%A"
+	reg delete "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU" /v NoAutoRebootWithLoggedOnUsers /f >nul 2>&1
 
 	echo.
 	echo %dashLine%
 	echo.
 
-	if not defined result (
+	call :value_exists "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU" "NoAutoRebootWithLoggedOnUsers" result
+	if !result! EQU 0 (
 		echo No Auto Reboot policy has been disabled successfully.
 	) else (
 		echo Error: Failed to disable No Auto Reboot policy.
@@ -944,14 +1043,12 @@ if "%noRebootPolicy%"=="true" (
 	echo Adding No Auto Reboot policy...
 	reg add "HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU" /v NoAutoRebootWithLoggedOnUsers /t REG_DWORD /d 1 /f >nul 2>&1
 
-	set "result="
-	for /f "tokens=*" %%A in ('reg query "HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU" /v NoAutoRebootWithLoggedOnUsers 2^>nul') do set "result=%%A"
-
 	echo.
 	echo %dashLine%
 	echo.
 
-	if defined result (
+	call :value_exists "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU" "NoAutoRebootWithLoggedOnUsers" result
+	if !result! NEQ 0 (
 		echo No Auto Reboot policy has been enabled successfully.
 	) else (
 		echo Error: Failed to enable No Auto Reboot policy.
@@ -987,11 +1084,8 @@ set "userInput="
 :: Prompt for enabling the policy (1/y/yes, 0/n/no)
 set /p "userInput=Do you still want to enable this policy? (Y,N): "
 
-:: Remove leading and trailing spaces, and convert to lowercase
+:: Remove leading and trailing spaces
 set "response=%userInput%"
-for %%A in (E N O S Y) do (
-	set "response=!response:%%A=%%A!"
-)
 set "response=!response: =!"
 
 set result=-1
@@ -1044,28 +1138,28 @@ set /a endHour=(HOUR + halfHigh) %% 24
 
 :: Write registry values
 reg add "HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings" /v ActiveHoursStart /t REG_DWORD /d %startHour% /f >nul
-if %errorlevel% equ 0 (
+if %errorlevel% EQU 0 (
 	echo ActiveHoursStart set to %startHour%
 ) else (
 	echo Error: Failed to set ActiveHoursStart. ErrorLevel: %errorlevel%
 )
 
 reg add "HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings" /v ActiveHoursEnd /t REG_DWORD /d %endHour% /f >nul
-if %errorlevel% equ 0 (
+if %errorlevel% EQU 0 (
 	echo ActiveHoursEnd set to %endHour%
 ) else (
 	echo Error: Failed to set ActiveHoursEnd. ErrorLevel: %errorlevel%
 )
 
 reg add "HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings" /v UserChoiceActiveHoursStart /t REG_DWORD /d %startHour% /f >nul
-if %errorlevel% equ 0 (
+if %errorlevel% EQU 0 (
 	echo UserChoiceActiveHoursStart set to %startHour%
 ) else (
 	echo Error: Failed to set UserChoiceActiveHoursStart. ErrorLevel: %errorlevel%
 )
 
 reg add "HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings" /v UserChoiceActiveHoursEnd /t REG_DWORD /d %endHour% /f >nul
-if %errorlevel% equ 0 (
+if %errorlevel% EQU 0 (
 	echo UserChoiceActiveHoursEnd set to %endHour%
 ) else (
 	echo Error: Failed to set UserChoiceActiveHoursEnd. ErrorLevel: %errorlevel%
@@ -1097,17 +1191,8 @@ goto menu
 setlocal
 
 :: Compliance Deadline Master Toggle (0 or 1, optional, default 0)
-set complianceDeadline=0
-for /f "tokens=3" %%A in ('reg query "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v SetComplianceDeadline 2^>nul') do (
-	set /a "val=%%A"
-	if !val! equ 1 (
-		set "complianceDeadline=1"
-	) else if !val! equ 0 (
-		set "complianceDeadline=0"
-	) else (
-		set "complianceDeadline=0"
-	)
-)
+call :read_dword "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" "SetComplianceDeadline" complianceDeadline 0
+if %complianceDeadline% NEQ 0 set complianceDeadline=1
 
 :: Feature Update Delay (0–30, default 2)
 set "ConfigDeadlineForFeatureUpdates=-1"
@@ -1146,9 +1231,9 @@ for /f "tokens=3" %%A in ('reg query "HKLM\SOFTWARE\Policies\Microsoft\Windows\W
 set "ConfigDeadlineNoAutoReboot=-1"
 for /f "tokens=3" %%A in ('reg query "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v ConfigureDeadlineNoAutoReboot 2^>nul') do (
 	set /a "val=%%A"
-	if !val! equ 1 (
+	if !val! EQU 1 (
 		set "ConfigDeadlineNoAutoReboot=1"
-	) else if !val! equ 0 (
+	) else if !val! EQU 0 (
 		set "ConfigDeadlineNoAutoReboot=0"
 	) else (
 		set "ConfigDeadlineNoAutoReboot=0"
@@ -1359,11 +1444,8 @@ set "userInput="
 :: Prompt for modifying the policies (1/y/yes, 0/n/no)
 set /p "userInput=Do you still want to modify these policies? (Y,N): "
 
-:: Remove leading and trailing spaces, and convert to lowercase
+:: Remove leading and trailing spaces
 set "response=%userInput%"
-for %%A in (E N O S Y) do (
-	set "response=!response:%%A=%%A!"
-)
 set "response=!response: =!"
 
 set result=-1
@@ -1430,7 +1512,7 @@ if "!userInput!"=="" (
 :: Set errorlevel to 0
 (call )
 
-:: Perform arithmatic
+:: Perform arithmetic
 set /a "featureDays=userInput + 0" 2>nul
 
 :: Check for errors
@@ -1463,7 +1545,7 @@ if "%featureDays%" EQU "%userInput%" (
 	goto manual_delay_config
 )
 
-:: Interger has been accepted
+:: Integer has been accepted
 goto manual_delay_config
 
 :: ~~~~~~~~~~
@@ -1531,7 +1613,7 @@ if "%qualityDays%" EQU "%userInput%" (
 	goto manual_delay_config
 )
 
-:: Interger has been accepted
+:: Integer has been accepted
 goto manual_delay_config
 
 :: ~~~~~~~~~~
@@ -1599,7 +1681,7 @@ if "%graceDays%" EQU "%userInput%" (
 	goto manual_delay_config
 )
 
-:: Interger has been accepted
+:: Integer has been accepted
 goto manual_delay_config
 
 :: ~~~~~~~~~~
@@ -1630,11 +1712,8 @@ if not defined userInput (
 	goto manual_delay_config
 )
 
-:: Remove leading and trailing spaces, and convert to lowercase
+:: Remove leading and trailing spaces
 set "response=%userInput%"
-for %%A in (E N O S Y) do (
-	set "response=!response:%%A=%%A!"
-)
 set "response=!response: =!"
 
 :: Match user input to valid responses
@@ -1730,9 +1809,6 @@ set /p "userInput=Do you still want to modify these policies? (Y,N): "
 
 :: Remove leading and trailing spaces, and convert to lowercase
 set "response=%userInput%"
-for %%A in (E N O S Y) do (
-	set "response=!response:%%A=%%A!"
-)
 set "response=!response: =!"
 
 set result=-1
@@ -1764,7 +1840,7 @@ if "%result%" == "0" (
 :: Display the title
 call :title "Clear Aggressive Update Settings"
 
-echo Clearing agressive update settings...
+echo Clearing aggressive update settings...
 
 for %%V in (SetComplianceDeadline ConfigureDeadlineForFeatureUpdates ConfigureDeadlineForQualityUpdates ConfigureDeadlineGracePeriod ConfigureDeadlineNoAutoReboot) do (
 	reg delete "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v %%V /f >nul 2>&1
@@ -1905,7 +1981,7 @@ goto main
 set "src=%~f0" & set "tmp=%TEMP%\%~nx0_%random%.tmp"
 
 :: Normalize LF to CRLF into the temp file
-type "%src%" | find /V "" > "%tmp%" 
+type "%src%" | find /V "" > "%tmp%"
 
 :: Copy the temp file to our original source, remove the temp file, reset the code page and restart
 type "%tmp%" > "%src%" & del "%tmp%" & chcp %codepage% >nul & call "%src%" & exit /B
