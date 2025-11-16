@@ -1965,6 +1965,26 @@ exit /b
 :: ----------------------------------------
 
 :eol_verify
+
+setlocal EnableExtensions
+
+:: Read system ANSI code page (ACP)
+set "ACP="
+for /f "tokens=3" %%C in ('
+	reg query "HKLM\SYSTEM\CurrentControlSet\Control\Nls\CodePage" /v ACP 2^>nul
+') do set "ACP=%%C"
+
+:: Flag DBCS (JP/CN/KR/TW/KJ)
+set "IS_DBCS=0"
+for %%C in (932 936 949 950 1361) do if "%ACP%"=="%%C" set "IS_DBCS=1"
+
+endlocal & set "IS_DBCS=%IS_DBCS%"
+
+if "%IS_DBCS%"=="1" (
+	cls
+	goto main
+)
+
 rem ═
 :═?    ?
 
@@ -1977,6 +1997,10 @@ goto main
 
 :repair
 
+:: Prevent recursive repair if something goes sideways
+if defined EOL_REPAIRED goto main
+set "EOL_REPAIRED=1"
+
 :: Source and temp paths
 set "src=%~f0" & set "tmp=%TEMP%\%~nx0_%random%.tmp"
 
@@ -1984,4 +2008,4 @@ set "src=%~f0" & set "tmp=%TEMP%\%~nx0_%random%.tmp"
 type "%src%" | find /V "" > "%tmp%"
 
 :: Copy the temp file to our original source, remove the temp file, reset the code page and restart
-type "%tmp%" > "%src%" & del "%tmp%" & chcp %codepage% >nul & call "%src%" & exit /B
+type "%tmp%" > "%src%" & del "%tmp%" & chcp %codepage% >nul & call "%src%" %* & exit /B
