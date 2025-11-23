@@ -1,4 +1,4 @@
-@echo off & for /f "tokens=2 delims=:" %%a in ('chcp') do set /a "codepage=%%a" & chcp 65001 >nul & (reg query "HKLM\SYSTEM\CurrentControlSet\Control\Nls\CodePage" /v ACP 2>nul | findstr /c:" 932" /c:" 936" /c:" 949" /c:" 950" /c:" 1361" >nul) && (set "IS_DBCS=1" & goto :eol_verify_dbcs) || (set "IS_DBCS=0" & goto :eol_verify)
+@echo off & for /f "tokens=2 delims=:" %%a in ('chcp') do set /a "codepage=%%a" & chcp 65001 >nul & ( reg query "HKLM\SYSTEM\CurrentControlSet\Control\Nls\CodePage" /v ACP 2>nul | findstr /c:" 932" /c:" 936" /c:" 949" /c:" 950" /c:" 1361" >nul ) && ( goto :eol_verify_dbcs ) || goto :eol_verify
 :: Store the original code page, change the code page to UTF-8, read system ANSI code page (ACP), flag DBCS (JP/CN/KR/TW/KJ) and verify the line endings
 
 :: ========== ========== ========== ========== ==========
@@ -11,59 +11,110 @@
 
 :: The main Always Active Hours script
 :main
-
-:: Set column and row dimensions
-mode con: cols=55 lines=28
-
 setlocal enabledelayedexpansion
-title Always Active Hours Configurator
+
+:: Default exit code
+set "EXIT_CODE=0"
 
 :: ========== ========== ========== ========== ==========
 
 ver | findstr /r "10\.0\.[0-9]*" >nul || (
 	echo Error: Unsupported Windows version.
+	set "EXIT_CODE=1"
 	pause
 	goto end
 )
 
 :: ========== ========== ========== ========== ==========
 
+:: Default flags
+set "asAdministrator=false"
+set "asInstall=false"
+set "asUninstall=false"
+set "asTask=false"
+set "asQuiet=false"
+set "silent=false"
+
 :: Check for administrator privileges
 NET SESSION >nul 2>&1
-if %errorlevel% neq 0 (
-	set "asAdministrator=false"
-) else (
-	set "asAdministrator=true"
+if %errorlevel% EQU 0 set "asAdministrator=true"
+
+:: Parse command-line switches
+for %%A in (%*) do (
+	:: Detect if installing
+	if /I "%%~A"=="/install" set "asInstall=true"
+	if /I "%%~A"=="/enable" set "asInstall=true"
+
+	:: Detect if uninstalling
+	if /I "%%~A"=="/uninstall" (
+		set "asInstall=true"
+		set "asUninstall=true"
+	)
+	if /I "%%~A"=="/disable" (
+		set "asInstall=true"
+		set "asUninstall=true"
+	)
+
+	:: Detect if running as a scheduled task
+	if /I "%%~A"=="/task" set "asTask=true"
+
+	:: Detect if running quietly
+	if /I "%%~A"=="/q" set "asQuiet=true"
+	if /I "%%~A"=="/quiet" set "asQuiet=true"
 )
 
-:: Detect if running as a scheduled task using a command-line argument
-if "%~1"=="/task" (
-	set "asTask=true"
-) else (
-	set "asTask=false"
-)
+if "%asTask%"=="true" set "silent=true"
+if "%asQuiet%"=="true" set "silent=true"
 
 :: ==========
 
 :: Reject non-administrators
 if "%asAdministrator%"=="false" (
-	if "%asTask%"=="true" (
-		goto end
-	) else (
-		echo Error: This script must be run as an administrator.
-		echo Right-click the script and select "Run as Administrator."
-		pause
+	if "%silent%"=="true" goto end
+	if "%asUninstall%"=="true" (
+		echo Error: This script must be uninstalled as an administrator.
+		set "EXIT_CODE=2"
 		goto end
 	)
+	if "%asInstall%"=="true" (
+		echo Error: This script must be installed as an administrator.
+		set "EXIT_CODE=2"
+		goto end
+	)
+	echo Error: This script must be run as an administrator.
+	echo Right-click the script and select "Run as Administrator."
+	pause
+	goto end
 )
 
-:: ==========
+:: ========== ========== ========== ========== ==========
 
-if "%asTask%"=="true" (
-	goto shift_hours
-)
+:: If running as a scheduled task, go straight to shift the active hours
+if "%asTask%"=="true" goto shift_hours
 
-:: ==========
+:: ~~~~~
+
+:: Set task variables
+set "taskName=Always Active Hours"
+set "scriptPath=%~f0"
+set "targetDir=%ProgramData%\AlwaysActiveHours"
+set "xmlPath=%temp%\AlwaysActiveHours.xml"
+set "taskErrorLog=%temp%\schtasks_error.log"
+
+if "%asUninstall%"=="true" goto disable_task
+if "%asInstall%"=="true" goto enable_task
+
+:: ~~~~~
+
+:: If running in quiet mode, the default is to shift the active hours
+if "%asQuiet%"=="true" goto shift_hours
+
+:: ========== ========== ========== ========== ==========
+
+title Always Active Hours Configurator
+
+:: Set column and row dimensions
+mode con: cols=55 lines=28
 
 :: Obtain the escape character and store it in ESC
 for /f "delims=" %%A in ('echo prompt $E^| cmd') do set "ESC=%%A"
@@ -515,14 +566,14 @@ goto :eof
 :: Check if the scheduled task exists
 schtasks /query /tn "%taskName%" >nul 2>&1
 if %errorlevel% EQU 0 (
-	set taskExists=true
+	set "taskExists=true"
 ) else (
-	set taskExists=false
+	set "taskExists=false"
 )
 
 :: Fetch current active hours from the registry
-call :read_dword "HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings" "ActiveHoursStart" activeStart 8
-call :read_dword "HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings" "ActiveHoursEnd" activeEnd 18
+call :read_dword "HKLM\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings" "ActiveHoursStart" activeStart 8
+call :read_dword "HKLM\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings" "ActiveHoursEnd" activeEnd 18
 
 :: Convert active hours to AM/PM format
 call :convert_to_ampm %activeStart% activeStartDisplay
@@ -592,14 +643,14 @@ echo   2. Shift Active Hours
 if "%noRebootPolicy%"=="true" (
 	echo   3. Disable No Auto Reboot Policy
 ) else (
-	if "%homeEdition%" == "0" (
+	if "%homeEdition%"=="0" (
 		echo   3. Enable No Auto Reboot Policy
 	) else (
 		echo   3. %ESC%[90mEnable No Auto Reboot Policy%ESC%[0m
 	)
 )
 
-if "%homeEdition%" == "0" (
+if "%homeEdition%"=="0" (
 	echo   4. Delay Aggressive Updates
 ) else (
 	echo   4. %ESC%[90mDelay Aggressive Updates%ESC%[0m
@@ -616,10 +667,10 @@ echo %dashLine%
 echo.
 set /p "choice=  Enter your choice (1-7): "
 
-if "%choice%" == "1" goto toggle_task
-if "%choice%" == "2" goto shift_hours
-if "%choice%" == "3" (
-	if "%homeEdition%" == "0" (
+if "%choice%"=="1" goto toggle_task
+if "%choice%"=="2" goto shift_hours
+if "%choice%"=="3" (
+	if "%homeEdition%"=="0" (
 		goto toggle_no_reboot
 	) else (
 		if "%noRebootPolicy%"=="true" (
@@ -629,10 +680,10 @@ if "%choice%" == "3" (
 		)
 	)
 )
-if "%choice%" == "4" goto delay_updates
-if "%choice%" == "5" goto required_reboots
-if "%choice%" == "6" goto menu
-if "%choice%" == "7" goto end
+if "%choice%"=="4" goto delay_updates
+if "%choice%"=="5" goto required_reboots
+if "%choice%"=="6" goto menu
+if "%choice%"=="7" goto end
 goto menu_display
 
 :: ========== ========== ========== ========== ==========
@@ -708,14 +759,54 @@ goto :eof
 
 :: ========== ========== ========== ========== ==========
 
+:enable_task
+
+:: Check if the scheduled task exists
+schtasks /query /tn "%taskName%" >nul 2>&1
+if %errorlevel% EQU 0 (
+	if "%silent%"=="false" (
+		echo Always Active Hours is already enabled.
+	)
+	goto end
+) else (
+	set "taskExists=false"
+	goto toggle_task
+)
+
+:: ==========
+
+:disable_task
+
+:: Check if the scheduled task exists
+schtasks /query /tn "%taskName%" >nul 2>&1
+if %errorlevel% NEQ 0 (
+	if "%silent%"=="false" (
+		echo Always Active Hours is already disabled.
+	)
+	goto end
+) else (
+	set "taskExists=true"
+	goto toggle_task
+)
+
+:: ==========
+
 :toggle_task
 
-:: Display the Title
-call :title "Scheduled Task Settings"
+if "%asInstall%"=="false" (
+	if "%silent%"=="false" (
+		:: Display the Title
+		call :title "Scheduled Task Settings"
+	)
+)
 
 if "%taskExists%"=="true" (
+	if "%silent%"=="false" (
+		echo Preparing uninstallation:
+		echo Removing the scheduled task...
+	)
+
 	:: Remove the scheduled task
-	echo Removing the scheduled task...
 	schtasks /delete /tn "%taskName%" /f >nul 2>&1
 
 	call :uninstall
@@ -738,20 +829,28 @@ set formattedDate=%YEAR%-%MONTH%-%DAY%T%hh%:%mm%:%ss%
 
 call :install
 
-echo Enabling active hours...
+if "%silent%"=="false" (
+	echo Enabling active hours...
+)
 
 :: Ensure SmartActiveHoursState is set to 0
 reg add "HKLM\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings" /v SmartActiveHoursState /t REG_DWORD /d 0 /f >nul
-if %errorlevel% neq 0 (
-	echo Error: Failed to set SmartActiveHoursState to 0.
-	echo.
-	echo %dashLine%
-	echo.
-	pause
-	goto menu
+if %errorlevel% NEQ 0 (
+	if "%silent%"=="false" (
+		echo Error: Failed to set SmartActiveHoursState to 0.
+		echo.
+		echo %dashLine%
+		echo.
+		pause
+		goto menu
+	) else (
+		goto end
+	)
 )
 
-echo Creating the scheduled task...
+if "%silent%"=="false" (
+	echo Creating the scheduled task...
+)
 
 rem Create temporary XML file
 (
@@ -818,13 +917,17 @@ rem Create temporary XML file
 
 :: Verify the existence of the XML file
 if not exist "%xmlPath%" (
-	echo XML file "%xmlPath%" does not exist.
-	echo Unable to create the scheduled task without the XML configuration.
-	echo.
-	echo %dashLine%
-	echo.
-	pause
-	goto menu
+	if "%silent%"=="false" (
+		echo XML file "%xmlPath%" does not exist.
+		echo Unable to create the scheduled task without the XML configuration.
+		echo.
+		echo %dashLine%
+		echo.
+		pause
+		goto menu
+	) else {
+		goto end
+	}
 )
 
 :: Register the task using the XML file
@@ -839,37 +942,47 @@ set "taskAction=create"
 goto task_check
 :task_check
 
-echo.
-echo %dashLine%
-echo.
+if "%asInstall%"=="false" (
+	if "%silent%"=="false" (
+		echo.
+		echo %dashLine%
+		echo.
+	)
+)
 
 :: Check if the task action was successful or not
 schtasks /query /tn "%taskName%" >nul 2>&1
 if "%taskAction%"=="remove" (
-	if %errorlevel% EQU 0 (
-		echo Error: Failed to remove the scheduled task.
-	) else (
-		echo Scheduled task removed successfully.
+	if "%silent%"=="false" (
+		if %errorlevel% EQU 0 (
+			echo Error: Failed to remove the scheduled task.
+		) else (
+			echo Scheduled task removed successfully.
+		)
 	)
 ) else (
-	if %errorlevel% EQU 0 (
-		echo Scheduled task created successfully.
-	) else (
-		echo Error: Failed to create the scheduled task.
-		if exist "%taskErrorLog%" (
-			echo.
-			echo                      ERROR DETAILS
-			echo =======================================================
-			for /f "tokens=*" %%A in (%taskErrorLog%) do (
-				set "line=%%A"
-				setlocal enabledelayedexpansion
-				set "line=!line:ERROR: =!"
-				echo !line!
-				endlocal
+	if "%silent%"=="false" (
+		if %errorlevel% EQU 0 (
+			echo Scheduled task created successfully.
+		) else (
+			echo Error: Failed to create the scheduled task.
+			if exist "%taskErrorLog%" (
+				echo.
+				echo                      ERROR DETAILS
+				echo =======================================================
+				for /f "tokens=*" %%A in (%taskErrorLog%) do (
+					set "line=%%A"
+					setlocal enabledelayedexpansion
+					set "line=!line:ERROR: =!"
+					echo !line!
+					endlocal
+				)
 			)
 		)
 	)
 )
+
+if "%asInstall%"=="true" goto end
 
 echo.
 pause
@@ -879,11 +992,16 @@ goto menu
 
 :install
 
-echo Preparing installation:
+if "%silent%"=="false" (
+	echo Preparing installation:
+)
+
 :: Check if already installed in target location
 if /I "%~dp0"=="%targetDir%\" (
 	if /I "%~nx0"=="Always Active Hours.bat" (
-		echo Already installed.
+		if "%silent%"=="false" (
+			echo Already installed.
+		)
 		goto :eof
 	)
 )
@@ -897,22 +1015,30 @@ set "forceAll=0"
 
 :: Create target directory if it doesn't exist and set SYSTEM as owner with full control
 if not exist "%targetDir%" (
-	echo Creating the installation directory...
+	if "%silent%"=="false" (
+		echo Creating the installation directory...
+	)
 	mkdir "%targetDir%"
 	icacls "%targetDir%" /setowner "*S-1-5-18" /c /q >nul
 	icacls "%targetDir%" /grant "*S-1-5-18":(^OI^)(^CI^)^F /t /c /q >nul
 ) else (
 	:: Delete existing file; if deletion fails, apply fallback permissions and try again
 	if exist "%filePath%" (
-		echo Deleting the old installation...
+		if "%silent%"=="false" (
+			echo Deleting the old installation...
+		)
 		del /F /Q "%filePath%"
 		if exist "%filePath%" (
-			echo Applying Administrator Group privileges...
+			if "%silent%"=="false" (
+				echo Applying Administrator Group privileges...
+			)
 			icacls "%targetDir%" /grant:r "*S-1-5-32-544":(^OI^)(^CI^)^F >nul
 			set "forceAdmin=1"
 			del /F /Q "%filePath%"
 			if exist "%filePath%" (
-				echo Applying All Users privileges...
+				if "%silent%"=="false" (
+					echo Applying All Users privileges...
+				)
 				icacls "%targetDir%" /grant:r "*S-1-5-32-545":(^OI^)(^CI^)^F >nul
 				set "forceAll=1"
 				del /F /Q "%filePath%"
@@ -921,7 +1047,9 @@ if not exist "%targetDir%" (
 	)
 )
 
-echo Copying batch file to the installation directory...
+if "%silent%"=="false" (
+	echo Copying batch file to the installation directory...
+)
 
 :: Copy the script to the target directory with /-I to force file interpretation
 xcopy "%scriptPath%" "%filePath%" /Y /-I /Q >nul 2>&1
@@ -933,8 +1061,10 @@ if not exist "%filePath%" (
 
 :: If the copy failed, try applying Administrator privileges and copy again
 if not exist "%filePath%" (
-	if "%forceAdmin%" == "0" (
-		echo Applying Administrator Group privileges...
+	if "%forceAdmin%"=="0" (
+		if "%silent%"=="false" (
+			echo Applying Administrator Group privileges...
+		)
 		icacls "%targetDir%" /grant:r "*S-1-5-32-544":(^OI^)(^CI^)^F >nul
 		set "forceAdmin=1"
 		xcopy "%scriptPath%" "%filePath%" /Y /-I /Q >nul 2>&1
@@ -946,8 +1076,10 @@ if not exist "%filePath%" (
 
 :: If still unsuccessful, try applying All Users privileges and copy again
 if not exist "%filePath%" (
-	if "%forceAll%" == "0" (
-		echo Applying All Users privileges...
+	if "%forceAll%"=="0" (
+		if "%silent%"=="false" (
+			echo Applying All Users privileges...
+		)
 		icacls "%targetDir%" /grant:r "*S-1-5-32-545":(^OI^)(^CI^)^F >nul
 		set "forceAll=1"
 		xcopy "%scriptPath%" "%filePath%" /Y /-I /Q >nul 2>&1
@@ -958,12 +1090,16 @@ if not exist "%filePath%" (
 )
 
 :: Clean up fallback privileges if they were applied
-if "%forceAll%" == "1" (
-	echo Removing All Users privileges...
+if "%forceAll%"=="1" (
+	if "%silent%"=="false" (
+		echo Removing All Users privileges...
+	)
 	icacls "%targetDir%" /remove "*S-1-5-32-545" >nul
 )
-if "%forceAdmin%" == "1" (
-	echo Removing Administrator Group privileges...
+if "%forceAdmin%"=="1" (
+	if "%silent%"=="false" (
+		echo Removing Administrator Group privileges...
+	)
 	icacls "%targetDir%" /remove "*S-1-5-32-544" >nul
 )
 
@@ -982,15 +1118,21 @@ set "forceAll=0"
 
 :: Delete the file; if deletion fails, apply fallback permissions and try again
 if exist "%filePath%" (
-	echo Deleting the batch file...
+	if "%silent%"=="false" (
+		echo Deleting the batch file...
+	)
 	del /F /Q "%filePath%"
 	if exist "%filePath%" (
-		echo Applying Administrator Group privileges...
+		if "%silent%"=="false" (
+			echo Applying Administrator Group privileges...
+		)
 		icacls "%targetDir%" /grant:r "*S-1-5-32-544":(^OI^)(^CI^)^F >nul
 		set "forceAdmin=1"
 		del /F /Q "%filePath%"
 		if exist "%filePath%" (
-			echo Applying All Users privileges...
+			if "%silent%"=="false" (
+				echo Applying All Users privileges...
+			)
 			icacls "%targetDir%" /grant:r "*S-1-5-32-545":(^OI^)(^CI^)^F >nul
 			set "forceAll=1"
 			del /F /Q "%filePath%"
@@ -1001,15 +1143,21 @@ if exist "%filePath%" (
 :: If the directory is empty, remove it; otherwise, clean up fallback privileges
 dir /b "%targetDir%" | findstr . >nul
 if errorlevel 1 (
-	echo Removing the installation directory...
+	if "%silent%"=="false" (
+		echo Removing the installation directory...
+	)
 	rd "%targetDir%"
 ) else (
-	if "%forceAll%" == "1" (
-		echo Removing All Users privileges...
+	if "%forceAll%"=="1" (
+		if "%silent%"=="false" (
+			echo Removing All Users privileges...
+		)
 		icacls "%targetDir%" /remove "*S-1-5-32-545" >nul
 	)
-	if "%forceAdmin%" == "1" (
-		echo Removing Administrator Group privileges...
+	if "%forceAdmin%"=="1" (
+		if "%silent%"=="false" (
+			echo Removing Administrator Group privileges...
+		)
 		icacls "%targetDir%" /remove "*S-1-5-32-544" >nul
 	)
 )
@@ -1041,7 +1189,7 @@ if "%noRebootPolicy%"=="true" (
 ) else (
 	:: Enable No Auto Reboot Policy
 	echo Adding No Auto Reboot policy...
-	reg add "HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU" /v NoAutoRebootWithLoggedOnUsers /t REG_DWORD /d 1 /f >nul 2>&1
+	reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU" /v NoAutoRebootWithLoggedOnUsers /t REG_DWORD /d 1 /f >nul 2>&1
 
 	echo.
 	echo %dashLine%
@@ -1098,12 +1246,12 @@ if /i "%response%"=="n" set result=0
 if /i "%response%"=="no" set result=0
 
 :: Check if result was set
-if "%result%" == "-1" (
+if "%result%"=="-1" (
 	echo Invalid input. Please enter 1/Y/Yes or 0/N/No.
 	pause
 	goto toggle_no_reboot_home
 )
-if "%result%" == "0" (
+if "%result%"=="0" (
 	goto menu
 ) else (
 	:: Result has been accepted
@@ -1114,10 +1262,12 @@ if "%result%" == "0" (
 
 :shift_hours
 
-:: Display the Title
-call :title "Shift Active Hours"
+if "%silent%"=="false" (
+	:: Display the Title
+	call :title "Shift Active Hours"
 
-echo Shifting active hours...
+	echo Shifting active hours...
+)
 
 :: Parse the system time to get the current hour
 call :parse_system_time
@@ -1137,38 +1287,44 @@ if %startHour% LSS 0 set /a startHour+=24
 set /a endHour=(HOUR + halfHigh) %% 24
 
 :: Write registry values
-reg add "HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings" /v ActiveHoursStart /t REG_DWORD /d %startHour% /f >nul
-if %errorlevel% EQU 0 (
-	echo ActiveHoursStart set to %startHour%
-) else (
-	echo Error: Failed to set ActiveHoursStart. ErrorLevel: %errorlevel%
+reg add "HKLM\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings" /v ActiveHoursStart /t REG_DWORD /d %startHour% /f >nul
+if "%silent%"=="false" (
+	if %errorlevel% EQU 0 (
+		echo ActiveHoursStart set to %startHour%
+	) else (
+		echo Error: Failed to set ActiveHoursStart. ErrorLevel: %errorlevel%
+	)
 )
 
-reg add "HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings" /v ActiveHoursEnd /t REG_DWORD /d %endHour% /f >nul
-if %errorlevel% EQU 0 (
-	echo ActiveHoursEnd set to %endHour%
-) else (
-	echo Error: Failed to set ActiveHoursEnd. ErrorLevel: %errorlevel%
+reg add "HKLM\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings" /v ActiveHoursEnd /t REG_DWORD /d %endHour% /f >nul
+if "%silent%"=="false" (
+	if %errorlevel% EQU 0 (
+		echo ActiveHoursEnd set to %endHour%
+	) else (
+		echo Error: Failed to set ActiveHoursEnd. ErrorLevel: %errorlevel%
+	)
 )
 
-reg add "HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings" /v UserChoiceActiveHoursStart /t REG_DWORD /d %startHour% /f >nul
-if %errorlevel% EQU 0 (
-	echo UserChoiceActiveHoursStart set to %startHour%
-) else (
-	echo Error: Failed to set UserChoiceActiveHoursStart. ErrorLevel: %errorlevel%
+reg add "HKLM\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings" /v UserChoiceActiveHoursStart /t REG_DWORD /d %startHour% /f >nul
+if "%silent%"=="false" (
+	if %errorlevel% EQU 0 (
+		echo UserChoiceActiveHoursStart set to %startHour%
+	) else (
+		echo Error: Failed to set UserChoiceActiveHoursStart. ErrorLevel: %errorlevel%
+	)
 )
 
-reg add "HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings" /v UserChoiceActiveHoursEnd /t REG_DWORD /d %endHour% /f >nul
-if %errorlevel% EQU 0 (
-	echo UserChoiceActiveHoursEnd set to %endHour%
-) else (
-	echo Error: Failed to set UserChoiceActiveHoursEnd. ErrorLevel: %errorlevel%
+reg add "HKLM\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings" /v UserChoiceActiveHoursEnd /t REG_DWORD /d %endHour% /f >nul
+if "%silent%"=="false" (
+	if %errorlevel% EQU 0 (
+		echo UserChoiceActiveHoursEnd set to %endHour%
+	) else (
+		echo Error: Failed to set UserChoiceActiveHoursEnd. ErrorLevel: %errorlevel%
+	)
 )
 
-:: End if running as a task
-if "%asTask%"=="true" (
-	goto end
-)
+:: End if running as a task or in quiet mode
+if "%silent%"=="true" goto end
 
 :: Convert startHour and endHour to AM/PM format
 call :convert_to_ampm %startHour% newStartDisplay
@@ -1188,7 +1344,6 @@ goto menu
 :: ========== ========== ========== ========== ==========
 
 :delay_updates
-setlocal
 
 :: Compliance Deadline Master Toggle (0 or 1, optional, default 0)
 call :read_dword "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" "SetComplianceDeadline" complianceDeadline 0
@@ -1198,7 +1353,7 @@ if %complianceDeadline% NEQ 0 set complianceDeadline=1
 set "ConfigDeadlineForFeatureUpdates=-1"
 for /f "tokens=3" %%A in ('reg query "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v ConfigureDeadlineForFeatureUpdates 2^>nul') do (
 	set /a "val=%%A"
-	if !val! geq 0 if !val! leq 30 (
+	if !val! GEQ 0 if !val! LEQ 30 (
 		set "ConfigDeadlineForFeatureUpdates=!val!"
 	) else (
 		set "ConfigDeadlineForFeatureUpdates=2"
@@ -1209,7 +1364,7 @@ for /f "tokens=3" %%A in ('reg query "HKLM\SOFTWARE\Policies\Microsoft\Windows\W
 set "ConfigDeadlineForQualityUpdates=-1"
 for /f "tokens=3" %%A in ('reg query "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v ConfigureDeadlineForQualityUpdates 2^>nul') do (
 	set /a "val=%%A"
-	if !val! geq 0 if !val! leq 30 (
+	if !val! GEQ 0 if !val! LEQ 30 (
 		set "ConfigDeadlineForQualityUpdates=!val!"
 	) else (
 		set "ConfigDeadlineForQualityUpdates=2"
@@ -1220,7 +1375,7 @@ for /f "tokens=3" %%A in ('reg query "HKLM\SOFTWARE\Policies\Microsoft\Windows\W
 set "ConfigDeadlineGracePeriod=-1"
 for /f "tokens=3" %%A in ('reg query "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v ConfigureDeadlineGracePeriod 2^>nul') do (
 	set /a "val=%%A"
-	if !val! geq 0 if !val! leq 7 (
+	if !val! GEQ 0 if !val! LEQ 7 (
 		set "ConfigDeadlineGracePeriod=!val!"
 	) else (
 		set "ConfigDeadlineGracePeriod=2"
@@ -1258,13 +1413,13 @@ if "%complianceDeadline%"=="1" (
 	set "label=Feature Update Delay"
 	set "line=║  !label!"
 	set "line=!line!!spaces!"
-	if %ConfigDeadlineForFeatureUpdates% neq -1 (
+	if %ConfigDeadlineForFeatureUpdates% NEQ -1 (
 		if %ConfigDeadlineForFeatureUpdates% == 1 (
 			set "value=1 day"
 			set "line=!line:~0,45!  !value!"
 		) else (
 			set "value=%ConfigDeadlineForFeatureUpdates% days"
-			if %ConfigDeadlineForFeatureUpdates% lss 9 (
+			if %ConfigDeadlineForFeatureUpdates% LSS 9 (
 				set "line=!line:~0,44!  !value!"
 			) else (
 				set "line=!line:~0,43!  !value!"
@@ -1284,13 +1439,13 @@ if "%complianceDeadline%"=="1" (
 	set "label=Quality Update Delay"
 	set "line=║  !label!"
 	set "line=!line!!spaces!"
-	if %ConfigDeadlineForQualityUpdates% neq -1 (
+	if %ConfigDeadlineForQualityUpdates% NEQ -1 (
 		if %ConfigDeadlineForQualityUpdates% == 1 (
 			set "value=1 day"
 			set "line=!line:~0,45!  !value!"
 		) else (
 			set "value=%ConfigDeadlineForQualityUpdates% days"
-			if %ConfigDeadlineForQualityUpdates% lss 9 (
+			if %ConfigDeadlineForQualityUpdates% LSS 9 (
 				set "line=!line:~0,44!  !value!"
 			) else (
 				set "line=!line:~0,43!  !value!"
@@ -1310,13 +1465,13 @@ if "%complianceDeadline%"=="1" (
 	set "label=Grace Period"
 	set "line=║  !label!"
 	set "line=!line!!spaces!"
-	if %ConfigDeadlineGracePeriod% neq -1 (
+	if %ConfigDeadlineGracePeriod% NEQ -1 (
 		if %ConfigDeadlineGracePeriod% == 1 (
 			set "value=1 day"
 			set "line=!line:~0,45!  !value!"
 		) else (
 			set "value=%ConfigDeadlineGracePeriod% days"
-			if %ConfigDeadlineGracePeriod% lss 9 (
+			if %ConfigDeadlineGracePeriod% LSS 9 (
 				set "line=!line:~0,44!  !value!"
 			) else (
 				set "line=!line:~0,43!  !value!"
@@ -1336,7 +1491,7 @@ if "%complianceDeadline%"=="1" (
 	set "label=Prevent Auto Reboot Until Deadline"
 	set "line=║  !label!"
 	set "line=!line!!spaces!"
-	if %ConfigDeadlineNoAutoReboot% neq -1 (
+	if %ConfigDeadlineNoAutoReboot% NEQ -1 (
 		if %ConfigDeadlineNoAutoReboot% == 1 (
 			set "value=True"
 			set "line=!line:~0,46!  !value!"
@@ -1361,7 +1516,7 @@ echo.
 echo %dashLine%
 echo.
 
-if "%homeEdition%" == "0" (
+if "%homeEdition%"=="0" (
 	echo   1. Automatically Set Max Delays
 	echo   2. Manually Configure Delays
 ) else (
@@ -1376,23 +1531,23 @@ echo %dashLine%
 echo.
 set /p "choice=  Enter your choice (1-5): "
 
-if "%choice%" == "1" (
-	if "%homeEdition%" == "0" (
+if "%choice%"=="1" (
+	if "%homeEdition%"=="0" (
 		goto set_max_delays
 	) else (
 		goto set_max_delays_home
 	)
 )
-if "%choice%" == "2" (
-	if "%homeEdition%" == "0" (
+if "%choice%"=="2" (
+	if "%homeEdition%"=="0" (
 		goto manual_delay_config
 	) else (
 		goto manual_delay_config_home
 	)
 )
-if "%choice%" == "3" goto clear_delays
-if "%choice%" == "4" goto delay_updates
-if "%choice%" == "5" goto menu
+if "%choice%"=="3" goto clear_delays
+if "%choice%"=="4" goto delay_updates
+if "%choice%"=="5" goto menu
 goto delay_updates
 
 :: ========== ========== ========== ========== ==========
@@ -1458,12 +1613,12 @@ if /i "%response%"=="n" set result=0
 if /i "%response%"=="no" set result=0
 
 :: Check if result was set
-if "%result%" == "-1" (
+if "%result%"=="-1" (
 	echo Invalid input. Please enter 1/Y/Yes or 0/N/No.
 	pause
 	goto set_max_delays_home
 )
-if "%result%" == "0" (
+if "%result%"=="0" (
 	goto delay_updates
 ) else (
 	:: Result has been accepted
@@ -1516,7 +1671,7 @@ if "!userInput!"=="" (
 set /a "featureDays=userInput + 0" 2>nul
 
 :: Check for errors
-if !errorlevel! neq 0 (
+if !errorlevel! NEQ 0 (
 	echo Input error. Please try again.
 	pause
 	set featureDays=
@@ -1526,12 +1681,12 @@ if !errorlevel! neq 0 (
 :: Verify the input matches the evaluated integer
 if "%featureDays%" EQU "%userInput%" (
 	:: Validate the integer
-	if %featureDays% lss 0 (
+	if %featureDays% LSS 0 (
 		echo Minimum value is 0.
 		pause
 		set featureDays=
 		goto manual_delay_config
-	) else if %featureDays% gtr 30 (
+	) else if %featureDays% GTR 30 (
 		echo Maximum value is 30.
 		pause
 		set featureDays=
@@ -1584,7 +1739,7 @@ if "!userInput!"=="" (
 set /a "qualityDays=userInput + 0" 2>nul
 
 :: Check for errors
-if !errorlevel! neq 0 (
+if !errorlevel! NEQ 0 (
 	echo Input error. Please try again.
 	pause
 	set qualityDays=
@@ -1594,12 +1749,12 @@ if !errorlevel! neq 0 (
 :: Verify the input matches the evaluated integer
 if "%qualityDays%" EQU "%userInput%" (
 	:: Validate the integer
-	if %qualityDays% lss 0 (
+	if %qualityDays% LSS 0 (
 		echo Minimum value is 0.
 		pause
 		set qualityDays=
 		goto manual_delay_config
-	) else if %qualityDays% gtr 30 (
+	) else if %qualityDays% GTR 30 (
 		echo Maximum value is 30.
 		pause
 		set qualityDays=
@@ -1652,7 +1807,7 @@ if "!userInput!"=="" (
 set /a "graceDays=userInput + 0" 2>nul
 
 :: Check for errors
-if !errorlevel! neq 0 (
+if !errorlevel! NEQ 0 (
 	echo Input error. Please try again.
 	pause
 	set graceDays=
@@ -1662,12 +1817,12 @@ if !errorlevel! neq 0 (
 :: Verify the input matches the evaluated integer
 if "%graceDays%" EQU "%userInput%" (
 	:: Validate the integer
-	if %graceDays% lss 0 (
+	if %graceDays% LSS 0 (
 		echo Minimum value is 0.
 		pause
 		set graceDays=
 		goto manual_delay_config
-	) else if %graceDays% gtr 7 (
+	) else if %graceDays% GTR 7 (
 		echo Maximum value is 7.
 		pause
 		set graceDays=
@@ -1780,7 +1935,6 @@ echo Aggressive update delays have been set.
 
 echo.
 pause
-endlocal
 goto delay_updates
 
 :: ========== ========== ========== ========== ==========
@@ -1821,12 +1975,12 @@ if /i "%response%"=="n" set result=0
 if /i "%response%"=="no" set result=0
 
 :: Check if result was set
-if "%result%" == "-1" (
+if "%result%"=="-1" (
 	echo Invalid input. Please enter 1/Y/Yes or 0/N/No.
 	pause
 	goto manual_delay_config_home
 )
-if "%result%" == "0" (
+if "%result%"=="0" (
 	goto delay_updates
 ) else (
 	:: Result has been accepted
@@ -1879,10 +2033,26 @@ set "line=!line!!spaces!"
 set "line=!line:~0,53! ║"
 echo !line!
 
+if "%CBS%"=="1" (
+	echo ║ - - - - - - - - - - - - - - - - - - - - - - - - - - ║
+
+	set "detail=• servicing changes pending"
+	set "line=║      !detail!"
+	set "line=!line!!spaces!"
+	set "line=!line:~0,53! ║"
+	echo !line!
+
+	set "detail=• reboot will complete component servicing"
+	set "line=║      !detail!"
+	set "line=!line!!spaces!"
+	set "line=!line:~0,53! ║"
+	echo !line!
+)
+
 echo ╟─────────────────────────────────────────────────────╢
 
 :: Windows Update Reboot Required
-set "label=Windows Update Reboot Required"
+set "label=Windows Update"
 set "line=║  !label!"
 set "line=!line!!spaces!"
 if "%WU%"=="1" (set "value=Yes") else (set "value=No")
@@ -1890,6 +2060,22 @@ set "line=!line:~0,45!  !value!"
 set "line=!line!!spaces!"
 set "line=!line:~0,53! ║"
 echo !line!
+
+if "%WU%"=="1" (
+	echo ║ - - - - - - - - - - - - - - - - - - - - - - - - - - ║
+
+	set "detail=• updates have been staged"
+	set "line=║      !detail!"
+	set "line=!line!!spaces!"
+	set "line=!line:~0,53! ║"
+	echo !line!
+
+	set "detail=• reboot required to finish installation"
+	set "line=║      !detail!"
+	set "line=!line!!spaces!"
+	set "line=!line:~0,53! ║"
+	echo !line!
+)
 
 echo ╟─────────────────────────────────────────────────────╢
 
@@ -1903,50 +2089,55 @@ set "line=!line!!spaces!"
 set "line=!line:~0,53! ║"
 echo !line!
 
+if "%PFR%"=="1" (
+	echo ║ - - - - - - - - - - - - - - - - - - - - - - - - - - ║
+
+	set "detail=• files marked for rename/deletion"
+	set "line=║      !detail!"
+	set "line=!line!!spaces!"
+	set "line=!line:~0,53! ║"
+	echo !line!
+
+	set "detail=• reboot needed to apply changes"
+	set "line=║      !detail!"
+	set "line=!line!!spaces!"
+	set "line=!line:~0,53! ║"
+	echo !line!
+)
+
 echo ╚═════════════════════════════════════════════════════╝
 
-echo.
 echo.
 if "%REBOOT_PENDING%"=="1" (
 	echo                 A reboot is required
 	echo.
-	if "%CBS%"=="1" (
-		echo     Component Based Servicing
-		echo          • servicing changes pending
-		echo          • reboot will complete component servicing
-		echo.
-	)
-	if "%WU%"=="1" (
-		echo     Windows Update
-		echo          • updates have been staged
-		echo          • reboot required to finish installation
-		echo.
-	)
-	if "%PFR%"=="1" (
-		echo     File Rename Operations
-		echo          • some files marked for rename/deletion
-		echo          • reboot needed to apply changes
-		echo.
-	)
 ) else (
 	echo            System is in a clean reboot state
 	echo          No pending reboot operations detected
 )
 
-echo.
 echo %dashLine%
 echo.
 
-echo.
 pause
 goto menu
 
 :: ========== ========== ========== ========== ==========
 
 :end
-endlocal
+
+if "%silent%"=="false" (
+	title Command Prompt
+)
+
+:: End the local environment and preserve key values
+endlocal & (
+	set "EXIT_CODE=%EXIT_CODE%"
+)
+
 if defined codepage chcp %codepage% >nul
-exit /b
+
+exit /b %EXIT_CODE%
 
 :: ========== ========== ========== ========== ==========
 
@@ -1962,9 +2153,7 @@ exit /b
 rem ══
 :═?    ?
 
-cls
-
-if %errorlevel% EQU 9009 ( goto repair )
+if %errorlevel% EQU 9009 ( cls & goto repair )
 goto main
 
 ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
@@ -1973,9 +2162,7 @@ goto main
 rem ═
 :═?    ?
 
-cls
-
-if %errorlevel% EQU 9009 ( goto repair )
+if %errorlevel% EQU 9009 ( cls & goto repair )
 goto main
 
 ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
@@ -1993,4 +2180,4 @@ set "src=%~f0" & set "tmp=%TEMP%\%~nx0_%random%.tmp"
 type "%src%" | find /V "" > "%tmp%"
 
 :: Copy the temp file to our original source, remove the temp file, reset the code page and restart
-type "%tmp%" > "%src%" & del "%tmp%" & chcp %codepage% >nul & call "%src%" %* & exit /B
+type "%tmp%" > "%src%" & del "%tmp%" & chcp "%codepage%" >nul & call "%src%" %* & exit /b 0
