@@ -135,13 +135,6 @@ for %%E in (Core CoreN CoreSingleLanguage CoreSingleLanguageN CoreCountrySpecifi
 
 :: ==========
 
-:: Set task variables
-set "taskName=Always Active Hours"
-set "scriptPath=%~f0"
-set "targetDir=%ProgramData%\AlwaysActiveHours"
-set "xmlPath=%temp%\AlwaysActiveHours.xml"
-set "taskErrorLog=%temp%\schtasks_error.log"
-
 set "dashLine=-------------------------------------------------------"
 
 goto menu
