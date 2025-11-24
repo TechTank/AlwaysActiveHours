@@ -925,9 +925,9 @@ if not exist "%xmlPath%" (
 		echo.
 		pause
 		goto menu
-	) else {
+	) else (
 		goto end
-	}
+	)
 )
 
 :: Register the task using the XML file
@@ -2127,6 +2127,19 @@ goto menu
 :end
 
 if "%silent%"=="false" (
+	cls
+	echo.
+	echo.
+	echo %ESC%[90m=======================================================%ESC%[0m
+	echo.
+	echo.
+	echo        Thank you for using Always Active Hours.
+	echo.
+	echo.
+	echo %ESC%[90m=======================================================%ESC%[0m
+	echo.
+	echo.
+
 	title Command Prompt
 )
 
