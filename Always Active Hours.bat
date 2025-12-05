@@ -319,11 +319,15 @@ goto :eof
 
 :: ========== ========== ========== ========== ==========
 
+:parse_time_string
+set "now=%~1"
+goto :parse_time_core
+
 :parse_system_time
-
-setlocal EnableDelayedExpansion
-
 set "now=%TIME%"
+
+:parse_time_core
+setlocal EnableDelayedExpansion
 set "invalidTime=0"
 
 :: Split H:M:S and optional AM/PM
@@ -342,9 +346,9 @@ set "ampm=!ampm: =!"
 
 :: Normalize numbers
 2>nul (
-	set /a H=1*!h!
-	set /a M=1*!m!
-	set /a S=1*!s!
+	set /a H=1!h!-100
+	set /a M=1!m!-100
+	set /a S=1!s!-100
 )
 
 if not defined H set "invalidTime=1" & set "H=0"
@@ -578,6 +582,15 @@ call :value_exists_bool "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\
 :: Resolve the effective active hours range (policy or default)
 call :get_active_hours_range
 
+:: Check the current pending reboot state
+call :check_pending_reboot
+
+if "%REBOOT_PENDING%"=="1" (
+	:: Parse the time and date strings by reading the language settings
+	call :parse_system_time
+	call :parse_system_date
+)
+
 :: ==========
 
 :menu_display
@@ -609,8 +622,6 @@ if not "%activeHoursMaxRangeDec%"=="18" (
 	)
 	echo !space!Your active hours range is limited to %activeHoursMaxRangeDec% hours
 )
-
-call :check_pending_reboot
 
 echo.
 if "%REBOOT_PENDING%"=="1" (
@@ -650,8 +661,8 @@ if "%homeEdition%"=="0" (
 )
 
 echo   5. Required Reboots
-echo   6. Refresh
-echo   7. Exit
+echo   6. %ESC%[4mR%ESC%[0mefresh
+echo   7. %ESC%[4mE%ESC%[0mxit
 
 :: =====
 
@@ -676,7 +687,9 @@ if "%choice%"=="3" (
 if "%choice%"=="4" goto delay_updates
 if "%choice%"=="5" goto required_reboots
 if "%choice%"=="6" goto menu
+if "!choice!"=="r" goto menu
 if "%choice%"=="7" goto end
+if "!choice!"=="e" goto end
 goto menu_display
 
 :: ========== ========== ========== ========== ==========
@@ -872,6 +885,14 @@ rem Create temporary XML file
 	echo         ^<DaysInterval^>1^</DaysInterval^>
 	echo       ^</ScheduleByDay^>
 	echo     ^</CalendarTrigger^>
+	echo     ^<EventTrigger^>
+	echo       ^<Enabled^>true^</Enabled^>
+	echo       ^<Subscription^>^&lt;QueryList^&gt;^&lt;Query Id="0" Path="System"^&gt;^&lt;Select Path="System"^&gt;*[System[Provider[@Name='Microsoft-Windows-Power-Troubleshooter'] and EventID=1]]^&lt;/Select^&gt;^&lt;/Query^&gt;^&lt;/QueryList^&gt;^</Subscription^>
+	echo     ^</EventTrigger^>
+	echo     ^<EventTrigger^>
+	echo       ^<Enabled^>true^</Enabled^>
+	echo       ^<Subscription^>^&lt;QueryList^&gt;^&lt;Query Id="0" Path="System"^&gt;^&lt;Select Path="System"^&gt;*[System[Provider[@Name='Microsoft-Windows-Kernel-Power'] and EventID=507]]^&lt;/Select^&gt;^&lt;/Query^&gt;^&lt;/QueryList^&gt;^</Subscription^>
+	echo     ^</EventTrigger^>
 	echo   ^</Triggers^>
 	echo   ^<Principals^>
 	echo     ^<Principal id="Author"^>
@@ -896,7 +917,7 @@ rem Create temporary XML file
 	echo     ^<Hidden^>true^</Hidden^>
 	echo     ^<RunOnlyIfIdle^>false^</RunOnlyIfIdle^>
 	echo     ^<WakeToRun^>false^</WakeToRun^>
-	echo     ^<ExecutionTimeLimit^>PT15S^</ExecutionTimeLimit^>
+	echo     ^<ExecutionTimeLimit^>PT30S^</ExecutionTimeLimit^>
 	echo     ^<Priority^>7^</Priority^>
 	echo   ^</Settings^>
 	echo   ^<Actions Context="Author"^>
