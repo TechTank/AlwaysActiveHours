@@ -1,9 +1,6 @@
 <p align="center">
   <img src="https://github.com/user-attachments/assets/07f95c28-ddda-483d-90f1-4b17dc89133a" alt="logo">
 </p>
-<br><br>
-<h1 align="center">Always Active Hours.bat</h1>
-<br><br>
 
 ## Overview
 
@@ -140,5 +137,4 @@ The result is a continuously sliding Active Hours window that keeps your active 
 
 ## Author
 
-Created by **Brogan Scott Houston McIntyre (TechTank)**  
-GitHub: https://github.com/TechTank
+Created by [Brogan Scott Houston McIntyre (TechTank)](https://github.com/TechTank)
