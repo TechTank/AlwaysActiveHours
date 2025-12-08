@@ -344,7 +344,17 @@ set "m=!m: =!"
 set "s=!s: =!"
 set "ampm=!ampm: =!"
 
-:: Normalize numbers
+:: Ensure at least 1 character
+if not defined h set "h=0"
+if not defined m set "m=0"
+if not defined s set "s=0"
+
+:: Pad to 2 digits
+if "!h:~1,1!"=="" set "h=0!h!"
+if "!m:~1,1!"=="" set "m=0!m!"
+if "!s:~1,1!"=="" set "s=0!s!"
+
+:: Normalize to integers, octal-safe
 2>nul (
 	set /a H=1!h!-100
 	set /a M=1!m!-100
@@ -652,10 +662,31 @@ if not defined th set "th=?"
 if not defined tm set "tm=??"
 
 :: Build 24h numeric time for comparison
-set /a nH=1!th! 2>nul
-set /a nM=1!tm! 2>nul
-set /a nS=0
-if defined ts set /a nS=1!ts! 2>nul
+set "th=!th!"
+set "tm=!tm!"
+set "ts=!ts!"
+
+:: Ensure at least 1 char
+if not defined th set "th=0"
+if not defined tm set "tm=0"
+if not defined ts set "ts=0"
+
+:: Pad to 2 digits
+if "!th:~1,1!"=="" set "th=0!th!"
+if "!tm:~1,1!"=="" set "tm=0!tm!"
+if "!ts:~1,1!"=="" set "ts=0!ts!"
+
+:: Normalize to integers, octal-safe
+2>nul (
+    set /a nH=1!th!-100
+    set /a nM=1!tm!-100
+    set /a nS=1!ts!-100
+)
+
+:: Fallback defaults
+if not defined nH set "nH=0"
+if not defined nM set "nM=0"
+if not defined nS set "nS=0"
 
 if /I "!ampm!"=="PM" if !nH! LSS 12 set /a nH+=12
 if /I "!ampm!"=="AM" if !nH! EQU 12 set /a nH=0
