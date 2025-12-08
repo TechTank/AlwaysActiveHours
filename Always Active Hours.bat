@@ -617,14 +617,14 @@ if /I not "!state!"=="Yes" (
 
 :: Fallback to XML WakeToRun if needed
 if /I not "!state!"=="Yes" if /I not "!state!"=="No" (
-	schtasks /query /tn "\Microsoft\Windows\UpdateOrchestrator\Schedule Wake To Work" /xml 2>nul | findstr /I "<WakeToRun>true"  >nul && set "state=Yes"
+	schtasks /query /tn "\Microsoft\Windows\UpdateOrchestrator\Schedule Wake To Work" /xml 2>nul | findstr /I "<WakeToRun>true" >nul && set "state=Yes"
 	if /I not "!state!"=="Yes" schtasks /query /tn "\Microsoft\Windows\UpdateOrchestrator\Schedule Wake To Work" /xml 2>nul | findstr /I "<WakeToRun>false" >nul && set "state=No"
 )
 
 :: If not armed or the time is (none)/N/A, we're done
 if /I not "!state!"=="Yes" goto _cws_exit
 if /I "%raw_next%"=="(none)" goto _cws_exit
-if /I "%raw_next%"=="N/A"   goto _cws_exit
+if /I "%raw_next%"=="N/A" goto _cws_exit
 
 :: At this point the system is armed
 set "armed=Yes"
@@ -678,9 +678,9 @@ if "!ts:~1,1!"=="" set "ts=0!ts!"
 
 :: Normalize to integers, octal-safe
 2>nul (
-    set /a nH=1!th!-100
-    set /a nM=1!tm!-100
-    set /a nS=1!ts!-100
+	set /a nH=1!th!-100
+	set /a nM=1!tm!-100
+	set /a nS=1!ts!-100
 )
 
 :: Fallback defaults
