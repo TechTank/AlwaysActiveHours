@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://github.com/user-attachments/assets/b0c5b43a-11a7-4682-93f8-670c8845815e" alt="logo">
+  <img src="https://github.com/user-attachments/assets/07f95c28-ddda-483d-90f1-4b17dc89133a" alt="logo">
 </p>
 <br><br>
 <h1 align="center">Always Active Hours.bat</h1>
