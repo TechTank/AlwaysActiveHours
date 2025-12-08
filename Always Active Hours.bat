@@ -558,6 +558,174 @@ goto :eof
 
 :: ========== ========== ========== ========== ==========
 
+:check_update_work_schedule
+
+setlocal EnableDelayedExpansion
+
+:: Defaults
+set "state=Unknown"
+set "raw_next=(none)"
+set "friendly="
+set "armed=No"
+set "tense=-1"
+
+:: Get today's date in YYYY-MM-DD format (YEAR/MONTH/DAY already set)
+set "TODAY=%YEAR%-%MONTH%-%DAY%"
+
+:: Build a numeric timestamp for "now" using already-parsed time (hh/mm/ss)
+set "NOWSTAMP=%YEAR%%MONTH%%DAY%%hh%%mm%%ss%"
+
+:: Query the specific task
+set "nextRun="
+set "wakeText="
+
+for /f "tokens=1,* delims=:" %%A in ('
+schtasks /query /tn "\Microsoft\Windows\UpdateOrchestrator\Schedule Wake To Work" ^
+	/fo LIST /v 2^>nul ^| findstr /B /C:"Next Run Time" /C:"Wake the computer to run this task"
+') do (
+	set "field=%%A"
+	set "val=%%B"
+	for /f "tokens=* delims= " %%Z in ("!val!") do set "val=%%Z"
+
+	if /I "!field!"=="Next Run Time" set "nextRun=!val!"
+	if /I "!field!"=="Wake the computer to run this task" set "wakeText=!val!"
+)
+
+:: If the task or its next run time is missing, nothing is armed
+if not defined nextRun (
+	set "state=No"
+	goto _cws_exit
+)
+
+set "raw_next=%nextRun%"
+
+:: Decide if wake is armed based on wakeText
+echo(!wakeText! | findstr /I "Yes" >nul && set "state=Yes"
+if /I not "!state!"=="Yes" (
+	echo(!wakeText! | findstr /I "No" >nul && set "state=No"
+)
+
+:: Fallback to XML WakeToRun if needed
+if /I not "!state!"=="Yes" if /I not "!state!"=="No" (
+	schtasks /query /tn "\Microsoft\Windows\UpdateOrchestrator\Schedule Wake To Work" /xml 2>nul | findstr /I "<WakeToRun>true"  >nul && set "state=Yes"
+	if /I not "!state!"=="Yes" schtasks /query /tn "\Microsoft\Windows\UpdateOrchestrator\Schedule Wake To Work" /xml 2>nul | findstr /I "<WakeToRun>false" >nul && set "state=No"
+)
+
+:: If not armed or the time is (none)/N/A, we're done
+if /I not "!state!"=="Yes" goto _cws_exit
+if /I "%raw_next%"=="(none)" goto _cws_exit
+if /I "%raw_next%"=="N/A"   goto _cws_exit
+
+:: At this point the system is armed
+set "armed=Yes"
+
+:: Parse raw_next, e.g. "2025-12-03 12:30:00 AM"
+set "raw=%raw_next%"
+
+:: Split date / time / am/pm
+set "d="
+set "t="
+set "ampm="
+
+for /f "tokens=1-3 delims= " %%a in ("%raw%") do (
+	set "d=%%a"
+	set "t=%%b"
+	set "ampm=%%c"
+)
+
+:: If we somehow didn't get a date or time, bail
+if not defined d goto _cws_exit
+if not defined t goto _cws_exit
+
+:: Time: HH:MM:SS (or HH:MM)
+set "th="
+set "tm="
+set "ts="
+
+for /f "tokens=1-3 delims=:" %%a in ("!t!") do (
+	set "th=%%a"
+	set "tm=%%b"
+	set "ts=%%c"
+)
+
+if not defined th set "th=?"
+if not defined tm set "tm=??"
+
+:: Build 24h numeric time for comparison
+set /a nH=1!th! 2>nul
+set /a nM=1!tm! 2>nul
+set /a nS=0
+if defined ts set /a nS=1!ts! 2>nul
+
+if /I "!ampm!"=="PM" if !nH! LSS 12 set /a nH+=12
+if /I "!ampm!"=="AM" if !nH! EQU 12 set /a nH=0
+
+if !nH! LSS 10 (set "nHH=0!nH!") else set "nHH=!nH!"
+if !nM! LSS 10 (set "nMM=0!nM!") else set "nMM=!nM!"
+if !nS! LSS 10 (set "nSS=0!nS!") else set "nSS=!nS!"
+
+:: Build the display time, hiding :00 seconds
+set "dispH=!th!"
+set "dispM=!tm!"
+set "dispS=!ts!"
+
+if not defined dispS (
+	set "TIME_PART=!dispH!:!dispM!"
+) else (
+	if "!dispS!"=="0" set "dispS=00"
+	if "!dispS!"=="00" (
+		set "TIME_PART=!dispH!:!dispM!"
+	) else (
+		set "TIME_PART=!dispH!:!dispM!:!dispS!"
+	)
+)
+
+if defined ampm set "TIME_PART=!TIME_PART! !ampm!"
+
+:: Date as given by schtasks (usually YYYY-MM-DD)
+set "NEXTDATE=!d!"
+
+:: Choose wording: today / on YYYY-MM-DD
+if /I "!NEXTDATE!"=="%TODAY%" (
+	set "WHEN_WORD=today at "
+) else (
+	set "WHEN_WORD=on !NEXTDATE! at "
+)
+
+set "friendly=!WHEN_WORD!!TIME_PART!"
+
+:: Build numeric NEXTSTAMP and decide tense:
+::   0 = past   (last expected activity)
+::   1 = future (next expected activity)
+for /f "tokens=1-3 delims=-" %%i in ("!NEXTDATE!") do (
+	set "nY=%%i"
+	set "nMo=%%j"
+	set "nD=%%k"
+)
+
+set "NEXTSTAMP=!nY!!nMo!!nD!!nHH!!nMM!!nSS!"
+
+if defined NEXTSTAMP (
+	if "!NEXTSTAMP!" LSS "!NOWSTAMP!" (
+		set "tense=0"
+	) else (
+		set "tense=1"
+	)
+)
+
+:_cws_exit
+endlocal & (
+	set "UPDATE_SCHEDULE_STATE=%state%"
+	set "UPDATE_SCHEDULE_NEXT=%raw_next%"
+	set "UPDATE_SCHEDULE_FRIENDLY=%friendly%"
+	set "UPDATE_SCHEDULE_TENSE=%tense%"
+	set "UPDATE_SYSTEM_ARMED=%armed%"
+)
+
+goto :eof
+
+:: ========== ========== ========== ========== ==========
+
 :menu
 
 :: Check if the scheduled task exists
@@ -589,6 +757,7 @@ if "%REBOOT_PENDING%"=="1" (
 	:: Parse the time and date strings by reading the language settings
 	call :parse_system_time
 	call :parse_system_date
+	call :check_update_work_schedule
 )
 
 :: ==========
@@ -625,7 +794,20 @@ if not "%activeHoursMaxRangeDec%"=="18" (
 
 echo.
 if "%REBOOT_PENDING%"=="1" (
-	echo              A reboot is currently pending
+	if /I "%UPDATE_SYSTEM_ARMED%"=="Yes" (
+		if defined UPDATE_SCHEDULE_FRIENDLY (
+			echo                 Windows Update is armed
+			if "%UPDATE_SCHEDULE_TENSE%"=="0" (
+				echo The last expected activity was %UPDATE_SCHEDULE_FRIENDLY%
+			) else (
+				echo The next expected activity is %UPDATE_SCHEDULE_FRIENDLY%
+			)
+		) else (
+			echo              A reboot is currently pending
+		)
+	) else (
+		echo              A reboot is currently pending
+	)
 ) else (
 	echo          System is in a clean reboot state
 )
