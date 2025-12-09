@@ -284,6 +284,62 @@ goto :eof
 
 :: ========== ========== ========== ========== ==========
 
+:center_line
+:: %1 = text
+:: %2 = optional flag: 1 => extra space goes on the LEFT instead of the right
+setlocal EnableDelayedExpansion
+set "text=%~1"
+set "preferLeading=%~2"
+
+:: Normalize boolean: only "1" counts as true
+if /I "!preferLeading!"=="1" (
+	set "preferLeading=1"
+) else (
+	set "preferLeading="
+)
+
+:: Trim leading spaces
+for /f "tokens=* delims= " %%A in ("%text%") do set "text=%%A"
+
+:: Console width
+set /a width=55
+
+:: Truncate if too long
+set "text=!text:~0,%width%!"
+
+:: Measure length
+set /a len=0
+for /l %%i in (0,1,54) do (
+	if not "!text:~%%i,1!"=="" set /a len+=1
+)
+
+:: Compute total padding
+set /a totalPad=width - len
+if !totalPad! LSS 0 set "totalPad=0"
+
+:: Default: split extra space to the right
+set /a padLeft=totalPad / 2
+set /a padRight=totalPad - padLeft
+
+:: If flag is set and padding is odd, move the extra space to the left
+if defined preferLeading (
+	set /a odd=totalPad %% 2
+	if !odd! NEQ 0 (
+		set /a padLeft+=1
+		set /a padRight-=1
+	)
+)
+
+set "spaces=                                                       "
+set "line=!spaces:~0,%padLeft%!%text%!spaces:~0,%padRight%!"
+
+echo(!line!
+
+endlocal
+goto :eof
+
+:: ========== ========== ========== ========== ==========
+
 :get_active_hours_range
 
 :: Fetch Active Hours Max Range if set by policy
@@ -515,18 +571,57 @@ if /i "!month!"=="Dec" set "month=12"
 :: Preserve original value
 set "value=!month!"
 set "invalidMonth=0"
+set "invalidDay=0"
 
-:: Convert to numbers to remove any existing leading zeros, then pad to two digits if needed
-if "!month:~0,1!"=="0" set "month=!month:~1!"
+:: If month is empty, it's automatically invalid
+if "!month!"=="" (
+	set "invalidMonth=1"
+) else (
+	:: Strip a single leading zero, if present
+	if "!month:~0,1!"=="0" set "month=!month:~1!"
 
-:: Try arithmetic eval, will fail if not numeric
-if "%month%" LSS "0" set "invalidMonth=1"
-if %month% GEQ 13 set "invalidMonth=1"
-if %month% LSS 10 set "month=0%month%"
+	:: Safely normalize to an integer, octal-safe
+	:: If this fails (non-numeric / unknown language),
+	:: mVal will remain undefined.
+	2>nul set /a mVal=1!month!-100
 
-:: Decimal interpretation for days
-if "!day:~0,1!"=="0" set "day=!day:~1!"
-if %day% LSS 10 set "day=0%day%"
+	if not defined mVal (
+		:: Non-numeric month, likely an unlisted language
+		set "invalidMonth=1"
+	) else (
+		:: Range check: restrict to 1-12
+		if !mVal! LSS 1 set "invalidMonth=1"
+		if !mVal! GTR 12 set "invalidMonth=1"
+	)
+)
+
+:: If month is valid, re-pad to two digits; otherwise leave it as-is and flag INVALID_MONTH
+if !invalidMonth! EQU 0 (
+	if !mVal! LSS 10 (set "month=0!mVal!") else set "month=!mVal!"
+)
+
+:: Decimal interpretation for days (1-31, clamp out-of-range)
+set "dVal="
+if "!day!"=="" (
+	:: Fallback day; shouldn't usually happen
+	set "day=01"
+	set "invalidDay=1"
+) else (
+	if "!day:~0,1!"=="0" set "day=!day:~1!"
+	2>nul set /a dVal=1!day!-100
+
+	if defined dVal (
+		:: Soft clamp to calendar-ish 1-31 range
+		if !dVal! LSS 1 set "dVal=1"
+		if !dVal! GTR 31 set "dVal=31"
+
+		if !dVal! LSS 10 (set "day=0!dVal!") else set "day=!dVal!"
+	) else (
+		:: Non-numeric day, just force 01
+		set "day=01"
+		set "invalidDay=1"
+	)
+)
 
 :: End the local block and return results in global variables
 endlocal & (
@@ -534,6 +629,7 @@ endlocal & (
 	set "MONTH=%month%"
 	set "DAY=%day%"
 	set "INVALID_MONTH=%invalidMonth%"
+	set "INVALID_DAY=%invalidDay%"
 )
 
 goto :eof
@@ -734,6 +830,16 @@ for /f "tokens=1-3 delims=-" %%i in ("!NEXTDATE!") do (
 	set "nD=%%k"
 )
 
+:: Normalize month/day to 2-digit, octal-safe
+2>nul set /a nMoVal=1!nMo!-100
+2>nul set /a nDVal=1!nD!-100
+
+if not defined nMoVal set "nMoVal=1"
+if not defined nDVal set "nDVal=1"
+
+if !nMoVal! LSS 10 (set "nMo=0!nMoVal!") else set "nMo=!nMoVal!"
+if !nDVal! LSS 10 (set "nD=0!nDVal!")  else set "nD=!nDVal!"
+
 set "NEXTSTAMP=!nY!!nMo!!nD!!nHH!!nMM!!nSS!"
 
 if defined NEXTSTAMP (
@@ -829,9 +935,9 @@ if "%REBOOT_PENDING%"=="1" (
 		if defined UPDATE_SCHEDULE_FRIENDLY (
 			echo                 Windows Update is armed
 			if "%UPDATE_SCHEDULE_TENSE%"=="0" (
-				echo The last expected activity was %UPDATE_SCHEDULE_FRIENDLY%
-			) else (
-				echo The next expected activity is %UPDATE_SCHEDULE_FRIENDLY%
+				call :center_line "The last expected activity was %UPDATE_SCHEDULE_FRIENDLY%" 1
+			) else if "%UPDATE_SCHEDULE_TENSE%"=="1" (
+				call :center_line "The next expected activity is %UPDATE_SCHEDULE_FRIENDLY%" 1
 			)
 		) else (
 			echo              A reboot is currently pending
@@ -1576,7 +1682,7 @@ goto menu
 call :read_dword "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" "SetComplianceDeadline" complianceDeadline 0
 if %complianceDeadline% NEQ 0 set complianceDeadline=1
 
-:: Feature Update Delay (0–30, default 2)
+:: Feature Update Delay (0-30, default 2)
 set "ConfigDeadlineForFeatureUpdates=-1"
 for /f "tokens=3" %%A in ('reg query "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v ConfigureDeadlineForFeatureUpdates 2^>nul') do (
 	set /a "val=%%A"
@@ -1587,7 +1693,7 @@ for /f "tokens=3" %%A in ('reg query "HKLM\SOFTWARE\Policies\Microsoft\Windows\W
 	)
 )
 
-:: Quality Update Delay (0–30, default 2)
+:: Quality Update Delay (0-30, default 2)
 set "ConfigDeadlineForQualityUpdates=-1"
 for /f "tokens=3" %%A in ('reg query "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v ConfigureDeadlineForQualityUpdates 2^>nul') do (
 	set /a "val=%%A"
@@ -1598,7 +1704,7 @@ for /f "tokens=3" %%A in ('reg query "HKLM\SOFTWARE\Policies\Microsoft\Windows\W
 	)
 )
 
-:: Grace Period (0–7, default 2)
+:: Grace Period (0-7, default 2)
 set "ConfigDeadlineGracePeriod=-1"
 for /f "tokens=3" %%A in ('reg query "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v ConfigureDeadlineGracePeriod 2^>nul') do (
 	set /a "val=%%A"
@@ -1962,7 +2068,7 @@ if "!userInput!"=="" (
 :: Set errorlevel to 0
 (call )
 
-:: Perform arithmatic
+:: Perform arithmetic
 set /a "qualityDays=userInput + 0" 2>nul
 
 :: Check for errors
@@ -2030,7 +2136,7 @@ if "!userInput!"=="" (
 :: Set errorlevel to 0
 (call )
 
-:: Perform arithmatic
+:: Perform arithmetic
 set /a "graceDays=userInput + 0" 2>nul
 
 :: Check for errors
