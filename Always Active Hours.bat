@@ -577,13 +577,15 @@ set "invalidDay=0"
 if "!month!"=="" (
 	set "invalidMonth=1"
 ) else (
-	:: Strip a single leading zero, if present
+	:: Trim spaces
+	set "month=!month: =!"
+
+	:: Strip a single leading zero if present
 	if "!month:~0,1!"=="0" set "month=!month:~1!"
 
-	:: Safely normalize to an integer, octal-safe
-	:: If this fails (non-numeric / unknown language),
-	:: mVal will remain undefined.
-	2>nul set /a mVal=1!month!-100
+	:: Safely normalize to an integer
+	set "mVal="
+	2>nul set /a mVal=!month!
 
 	if not defined mVal (
 		:: Non-numeric month, likely an unlisted language
@@ -607,8 +609,15 @@ if "!day!"=="" (
 	set "day=01"
 	set "invalidDay=1"
 ) else (
+	:: Trim spaces
+	set "day=!day: =!"
+
+	:: Strip a single leading zero, if present
 	if "!day:~0,1!"=="0" set "day=!day:~1!"
-	2>nul set /a dVal=1!day!-100
+
+	:: Safely normalize to an integer
+	set "dVal="
+	2>nul set /a dVal=!day!
 
 	if defined dVal (
 		:: Soft clamp to calendar-ish 1-31 range
