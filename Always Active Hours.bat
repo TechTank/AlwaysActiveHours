@@ -1161,6 +1161,10 @@ if "%INVALID_MONTH%"=="1" (
 set formattedDate=%YEAR%-%MONTH%-%DAY%T%hh%:%mm%:%ss%
 
 call :install
+if %errorlevel% NEQ 0 (
+	set "EXIT_CODE=1"
+	goto end
+)
 
 if "%silent%"=="false" (
 	echo Enabling active hours...
@@ -1249,8 +1253,8 @@ rem Create temporary XML file
 	echo   ^</Settings^>
 	echo   ^<Actions Context="Author"^>
 	echo     ^<Exec^>
-	echo       ^<Command^>"%targetDir%\Always Active Hours.bat"^</Command^>
-	echo       ^<Arguments^>/task^</Arguments^>
+	echo       ^<Command^>%ComSpec%^</Command^>
+	echo       ^<Arguments^>/c ""%targetDir%\Always Active Hours.bat" /task"^</Arguments^>
 	echo     ^</Exec^>
 	echo   ^</Actions^>
 	echo ^</Task^>
@@ -1343,7 +1347,7 @@ if /I "%~dp0"=="%targetDir%\" (
 		if "%silent%"=="false" (
 			echo Already installed.
 		)
-		goto :eof
+		exit /b 0
 	)
 )
 
@@ -1444,7 +1448,21 @@ if "%forceAdmin%"=="1" (
 	icacls "%targetDir%" /remove "*S-1-5-32-544" >nul
 )
 
-goto :eof
+:: Verify installation succeeded
+if not exist "%filePath%" (
+	if "%silent%"=="false" (
+		echo Installation failed.
+		echo Could not copy Always Active Hours.bat to:
+		echo %filePath%
+	)
+	exit /b 1
+)
+
+if "%silent%"=="false" (
+	echo Installation complete.
+)
+
+exit /b 0
 
 :: ==========
 
