@@ -385,19 +385,42 @@ set "now=%TIME%"
 setlocal EnableDelayedExpansion
 set "invalidTime=0"
 
-:: Split H:M:S and optional AM/PM
-for /f "tokens=1-4 delims=:., " %%a in ("%now%") do (
+set "h="
+set "m="
+set "s="
+set "token4="
+set "token5="
+set "hundredths="
+set "ampm="
+
+:: Split H:M:S, hundredths and optional AM/PM
+for /f "tokens=1-5 delims=:., " %%a in ("%now%") do (
 	set "h=%%a"
 	set "m=%%b"
 	set "s=%%c"
-	set "ampm=%%d"
+	set "token4=%%d"
+	set "token5=%%e"
 )
 
 :: Trim leading spaces
 set "h=!h: =!"
 set "m=!m: =!"
 set "s=!s: =!"
-set "ampm=!ampm: =!"
+set "token4=!token4: =!"
+set "token5=!token5: =!"
+
+:: Check token 4 for hundredths or meridiem indicator 
+if /i "!token4!"=="AM" (
+	set "ampm=AM"
+) else if /i "!token4!"=="PM" (
+	set "ampm=PM"
+) else (
+	set "hundredths=!token4!"
+)
+
+:: Check token 5 for meridiem indicator
+if /i "!token5!"=="AM" set "ampm=AM"
+if /i "!token5!"=="PM" set "ampm=PM"
 
 :: Ensure at least 1 character
 if not defined h set "h=0"
@@ -422,7 +445,6 @@ if not defined S set "invalidTime=1" & set "S=0"
 
 :: Adjust for AM/PM if token captured
 if defined ampm (
-	if /i not "!ampm!"=="AM" if /i not "!ampm!"=="PM" set "invalidTime=1"
 	if /i "!ampm!"=="PM" if !H! LSS 12 set /a H+=12
 	if /i "!ampm!"=="AM" if !H! EQU 12 set /a H=0
 )
@@ -489,8 +511,8 @@ set "dateStem=!dateStem:yy=Y!"
 set "dateStem=!dateStem:MMMM=M!"
 set "dateStem=!dateStem:MMM=M!"
 set "dateStem=!dateStem:MM=M!"
-set "dateStem=!dateStem:dddd=D!"
-set "dateStem=!dateStem:ddd=D!"
+set "dateStem=!dateStem:dddd=!"
+set "dateStem=!dateStem:ddd=!"
 set "dateStem=!dateStem:dd=D!"
 set "dateStem=!dateStem:d=D!"
 
@@ -517,6 +539,31 @@ for /f "tokens=1-3 delims=%dateSeparator%" %%A in ("%dateCore%") do (
 	set "part1=%%A"
 	set "part2=%%B"
 	set "part3=%%C"
+)
+
+:: Check for failure on composite date formats
+set "retryDateSplit=0"
+
+if defined part1 if not defined part2 if not defined part3 (
+	if not "!part1:/=!"=="!part1!" set "retryDateSplit=1"
+	if not "!part1:-=!"=="!part1!" set "retryDateSplit=1"
+	if not "!part1:.=!"=="!part1!" set "retryDateSplit=1"
+	if not "!part1:,=!"=="!part1!" set "retryDateSplit=1"
+)
+
+:: Replace delimiters with spaces then retry split
+if "!retryDateSplit!"=="1" (
+	set "retryDateCore=!dateCore!"
+	set "retryDateCore=!retryDateCore:/= !"
+	set "retryDateCore=!retryDateCore:-= !"
+	set "retryDateCore=!retryDateCore:.= !"
+	set "retryDateCore=!retryDateCore:,= !"
+
+	for /f "tokens=1-3" %%A in ("!retryDateCore!") do (
+		set "part1=%%A"
+		set "part2=%%B"
+		set "part3=%%C"
+	)
 )
 
 :: Map Tokens to Year, Month, Day Using the Date Stem
