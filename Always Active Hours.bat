@@ -481,28 +481,73 @@ goto :eof
 
 setlocal EnableDelayedExpansion
 
+:: Prevent inherited values from being used if a registry query fails
+set "shortDateFormat="
+set "cleanShortDateFormat="
+set "regLine="
+set "dateSeparator="
+set "cleanDateSeparator="
+
 :: Retrieve and clean Regional sShortDate
 for /f "tokens=2,*" %%A in ('reg query "HKCU\Control Panel\International" /v sShortDate 2^>nul ^| findstr /i "sShortDate"') do (
 	set "shortDateFormat=%%B"
 )
 set "shortDateFormat=!shortDateFormat:REG_SZ=!"
-for /f "tokens=* delims= " %%C in ("!shortDateFormat!") do set "shortDateFormat=%%C"
 
-:: Get raw line for sDate
-for /f "tokens=*" %%L in ('reg query "HKCU\Control Panel\International" /v sDate ^| findstr /i "sDate"') do (
+:: Trim leading spaces and convert an all-space value to empty
+for /f "tokens=* delims= " %%C in ("!shortDateFormat!") do (
+	set "cleanShortDateFormat=%%C"
+)
+
+set "shortDateFormat=!cleanShortDateFormat!"
+
+:: Stop if no usable short-date format was provided
+if not defined shortDateFormat (
+	set "year="
+	set "month="
+	set "day=01"
+	set "invalidYear=1"
+	set "invalidMonth=1"
+	set "invalidDay=1"
+	goto parse_system_date_return
+)
+
+:: Retrieve the complete sDate registry line
+for /f "delims=" %%L in ('reg query "HKCU\Control Panel\International" /v sDate 2^>nul ^| findstr /i "sDate"') do (
 	set "regLine=%%L"
 )
 
-:: Remove everything up to and including "REG_SZ" (preserve what's after)
-set "dateSeparator=!regLine:*REG_SZ =!"
-set "dateSeparator=!dateSeparator:~3!"
-
-for /f "tokens=* delims= " %%C in ("!shortDateFormat!") do set "shortDateFormat=%%C"
+:: Remove everything through REG_SZ, then remove the known
+:: three padding spaces while preserving a literal-space separator
+if defined regLine (
+	set "dateSeparator=!regLine:*REG_SZ =!"
+	set "dateSeparator=!dateSeparator:~3!"
+)
 
 :: Trim the date separator only if it's not a literal space
 if not "!dateSeparator!"==" " (
-	for /f "tokens=* delims= " %%C in ("!dateSeparator!") do set "dateSeparator=%%C"
+	for /f "tokens=* delims= " %%C in ("!dateSeparator!") do (
+		set "cleanDateSeparator=%%C"
+	)
+
+	set "dateSeparator=!cleanDateSeparator!"
 )
+
+:: Check whether the pattern begins or ends with a weekday
+set "weekdayPrefix=0"
+set "weekdaySuffix=0"
+set "weekdayRemoved=0"
+set "formatLead=!shortDateFormat!"
+
+for /f "tokens=* delims= " %%C in ("!formatLead!") do (
+	set "formatLead=%%C"
+)
+
+if /i "!formatLead:~0,4!"=="dddd" set "weekdayPrefix=1"
+if /i "!formatLead:~0,3!"=="ddd" set "weekdayPrefix=1"
+
+if /i "!shortDateFormat:~-4!"=="dddd" set "weekdaySuffix=1"
+if /i "!shortDateFormat:~-3!"=="ddd" set "weekdaySuffix=1"
 
 :: Build the Date Stem, replacing patterns with single letters: 'yyyy'/'yy' -> Y, 'MM' -> M, 'dd' -> D
 set "dateStem=!shortDateFormat!"
@@ -517,52 +562,115 @@ set "dateStem=!dateStem:dd=D!"
 set "dateStem=!dateStem:d=D!"
 
 :: Remove any occurrences of the separator and common delimiters
-set "dateStem=!dateStem:%dateSeparator%=!"
+if defined dateSeparator (
+	set "dateStem=!dateStem:%dateSeparator%=!"
+)
+set "dateStem=!dateStem:,=!"
 set "dateStem=!dateStem:/=!"
 set "dateStem=!dateStem:-=!"
 set "dateStem=!dateStem:.=!"
 set "dateStem=!dateStem: =!"
 
-:: Prepare the Date Core from %DATE%
+:: Prepare the date variables
+set "part1="
+set "part2="
+set "part3="
+set "weekday="
 set "dateCore=%DATE%"
 
-:: Strip the weekday prefix if present
-if not "%dateCore%"=="%dateCore: =%" (
-	for /f "tokens=1,* delims= " %%X in ("%dateCore%") do (
-		set "weekday=%%X"
-		set "dateCore=%%Y"
+:: Stop if no raw date was provided
+if not defined dateCore (
+	set "year="
+	set "month="
+	set "day=01"
+	set "invalidYear=1"
+	set "invalidMonth=1"
+	set "invalidDay=1"
+	goto parse_system_date_return
+)
+
+:: Remove a space-separated weekday prefix
+:: Leave a joined prefix intact for the normalized retry path
+if "!weekdayPrefix!"=="1" (
+	set "weekdayCandidate="
+	set "dateRemainder="
+
+	for /f "tokens=1,* delims= " %%X in ("!dateCore!") do (
+		set "weekdayCandidate=%%X"
+		set "dateRemainder=%%Y"
+	)
+
+	if defined dateRemainder (
+		set "weekday=!weekdayCandidate!"
+		set "dateCore=!dateRemainder!"
+		set "weekdayRemoved=1"
 	)
 )
 
 :: Split Date Core into Parts
-for /f "tokens=1-3 delims=%dateSeparator%" %%A in ("%dateCore%") do (
-	set "part1=%%A"
-	set "part2=%%B"
-	set "part3=%%C"
-)
-
-:: Check for failure on composite date formats
-set "retryDateSplit=0"
-
-if defined part1 if not defined part2 if not defined part3 (
-	if not "!part1:/=!"=="!part1!" set "retryDateSplit=1"
-	if not "!part1:-=!"=="!part1!" set "retryDateSplit=1"
-	if not "!part1:.=!"=="!part1!" set "retryDateSplit=1"
-	if not "!part1:,=!"=="!part1!" set "retryDateSplit=1"
-)
-
-:: Replace delimiters with spaces then retry split
-if "!retryDateSplit!"=="1" (
-	set "retryDateCore=!dateCore!"
-	set "retryDateCore=!retryDateCore:/= !"
-	set "retryDateCore=!retryDateCore:-= !"
-	set "retryDateCore=!retryDateCore:.= !"
-	set "retryDateCore=!retryDateCore:,= !"
-
-	for /f "tokens=1-3" %%A in ("!retryDateCore!") do (
+if defined dateSeparator (
+	for /f "tokens=1-3 delims=%dateSeparator%" %%A in ("%dateCore%") do (
 		set "part1=%%A"
 		set "part2=%%B"
 		set "part3=%%C"
+	)
+) else (
+	set "part1=%dateCore%"
+)
+
+:: Retry whenever the first split did not produce three clean date parts
+set "retryDateSplit=0"
+
+if not defined part1 set "retryDateSplit=1"
+if not defined part2 set "retryDateSplit=1"
+if not defined part3 set "retryDateSplit=1"
+
+set "splitCheck=!part1!!part2!!part3!"
+
+if not "!splitCheck:,=!"=="!splitCheck!" set "retryDateSplit=1"
+if not "!splitCheck:/=!"=="!splitCheck!" set "retryDateSplit=1"
+if not "!splitCheck:-=!"=="!splitCheck!" set "retryDateSplit=1"
+if not "!splitCheck:.=!"=="!splitCheck!" set "retryDateSplit=1"
+if not "!splitCheck: =!"=="!splitCheck!" set "retryDateSplit=1"
+
+:: Determine whether normalized token 1 is a joined weekday prefix
+set "joinedWeekdayPrefix=0"
+
+if "!weekdayPrefix!"=="1" (
+	if "!weekdayRemoved!"=="0" (
+		set "joinedWeekdayPrefix=1"
+	)
+)
+
+if "!joinedWeekdayPrefix!"=="1" set "retryDateSplit=1"
+if "!weekdaySuffix!"=="1" set "retryDateSplit=1"
+
+:: Replace known delimiters with spaces and retry
+if "!retryDateSplit!"=="1" (
+	set "retryDateCore=!dateCore!"
+	set "retryDateCore=!retryDateCore:,= !"
+	set "retryDateCore=!retryDateCore:/= !"
+	set "retryDateCore=!retryDateCore:-= !"
+	set "retryDateCore=!retryDateCore:.= !"
+
+	set "part1="
+	set "part2="
+	set "part3="
+
+	if "!joinedWeekdayPrefix!"=="1" (
+		:: Ignore the joined weekday in normalized token 1
+		for /f "tokens=2-4" %%A in ("!retryDateCore!") do (
+			set "part1=%%A"
+			set "part2=%%B"
+			set "part3=%%C"
+		)
+	) else (
+		:: Use the first three tokens and ignore any weekday suffix
+		for /f "tokens=1-3" %%A in ("!retryDateCore!") do (
+			set "part1=%%A"
+			set "part2=%%B"
+			set "part3=%%C"
+		)
 	)
 )
 
@@ -573,30 +681,45 @@ set "order=!dateStem:~0,3!"
 set "year="
 set "month="
 set "day="
+set "invalidYear=0"
+set "invalidMonth=0"
+set "invalidDay=0"
 
 :: Map token 1
-if /i "!order:~0,1!"=="Y" (set "year=!part1!")
-if /i "!order:~0,1!"=="M" (set "month=!part1!")
-if /i "!order:~0,1!"=="D" (set "day=!part1!")
+if /i "!order:~0,1!"=="Y" set "year=!part1!"
+if /i "!order:~0,1!"=="M" set "month=!part1!"
+if /i "!order:~0,1!"=="D" set "day=!part1!"
 
 :: Map token 2
-if /i "!order:~1,1!"=="Y" (set "year=!part2!")
-if /i "!order:~1,1!"=="M" (set "month=!part2!")
-if /i "!order:~1,1!"=="D" (set "day=!part2!")
+if /i "!order:~1,1!"=="Y" set "year=!part2!"
+if /i "!order:~1,1!"=="M" set "month=!part2!"
+if /i "!order:~1,1!"=="D" set "day=!part2!"
 
 :: Map token 3
-if /i "!order:~2,1!"=="Y" (set "year=!part3!")
-if /i "!order:~2,1!"=="M" (set "month=!part3!")
-if /i "!order:~2,1!"=="D" (set "day=!part3!")
-
-:: If the year is 2 digits, prefix it with "20"
-if "!year:~2!"=="" (
-	set "year=20!year!"
-)
-
-:: Convert month names to numbers if necessary...
+if /i "!order:~2,1!"=="Y" set "year=!part3!"
+if /i "!order:~2,1!"=="M" set "month=!part3!"
+if /i "!order:~2,1!"=="D" set "day=!part3!"
 
 :: ~~~~~~~~~~ ~~~~~~~~~~ ~~~~~~~~~~
+
+:: Validate exactly four numeric digits
+if not defined year (
+	set "invalidYear=1"
+) else (
+	if "!year:~1!" NEQ "" if "!year:~2!"=="" (
+		set "year=20!year!"
+	)
+
+	echo(!year!| findstr /r /x "[0-9][0-9][0-9][0-9]" >nul
+	if errorlevel 1 set "invalidYear=1"
+	if "!year!"=="0000" set "invalidYear=1"
+)
+
+:: ~~~~~~~~~~ ~~~~~~~~~~ ~~~~~~~~~~
+
+:: Convert month names to numbers if necessary
+
+:: ==========
 
 :: English
 if /i "!month!"=="Jan" set "month=1"
@@ -613,11 +736,6 @@ if /i "!month!"=="Nov" set "month=11"
 if /i "!month!"=="Dec" set "month=12"
 
 :: ~~~~~~~~~~ ~~~~~~~~~~ ~~~~~~~~~~
-
-:: Preserve original value
-set "value=!month!"
-set "invalidMonth=0"
-set "invalidDay=0"
 
 :: If month is empty, it's automatically invalid
 if "!month!"=="" (
@@ -667,8 +785,15 @@ if "!day!"=="" (
 
 	if defined dVal (
 		:: Soft clamp to calendar-ish 1-31 range
-		if !dVal! LSS 1 set "dVal=1"
-		if !dVal! GTR 31 set "dVal=31"
+		if !dVal! LSS 1 (
+			set "dVal=1"
+			set "invalidDay=1"
+		)
+
+		if !dVal! GTR 31 (
+			set "dVal=31"
+			set "invalidDay=1"
+		)
 
 		if !dVal! LSS 10 (set "day=0!dVal!") else set "day=!dVal!"
 	) else (
@@ -678,16 +803,20 @@ if "!day!"=="" (
 	)
 )
 
+:parse_system_date_return
+
 :: End the local block and return results in global variables
+
 endlocal & (
 	set "YEAR=%year%"
 	set "MONTH=%month%"
 	set "DAY=%day%"
+	set "INVALID_YEAR=%invalidYear%"
 	set "INVALID_MONTH=%invalidMonth%"
 	set "INVALID_DAY=%invalidDay%"
 )
 
-goto :eof
+exit /b 0
 
 :: ========== ========== ========== ========== ==========
 
