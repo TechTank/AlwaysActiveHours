@@ -344,9 +344,9 @@ goto :eof
 :: Fetch Active Hours Max Range if set by policy
 call :read_dword "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" "ActiveHoursMaxRange" activeHoursMaxRangeDec 18
 
-:: Clamp range between 8 and 18 hours (Windows defaults to 18 if out of range)
+:: Clamp range between 8 and 18 hours
 if %activeHoursMaxRangeDec% LSS 8 (
-	set activeHoursMaxRangeDec=18
+	set activeHoursMaxRangeDec=8
 )
 if %activeHoursMaxRangeDec% GTR 18 (
 	set activeHoursMaxRangeDec=18
